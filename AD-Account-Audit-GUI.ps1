@@ -87,6 +87,16 @@ $worker = {
             return $best
         }
 
+        # Make free-text AD fields (Description, Title, etc.) CSV-safe: strip the
+        # line breaks / tabs that AD often stores, which otherwise shift columns.
+        function Clean-Text {
+            param($Value)
+            if ($null -eq $Value) { return '' }
+            $s = [string]$Value -replace "[\r\n\t]+", ' '
+            $s = $s -replace '\s{2,}', ' '
+            return $s.Trim()
+        }
+
         # ------------------------------------------------------------------
         # 1) Load the whole directory ONCE (fast, single query) and build a
         #    set of per-attribute indexes so any identifier format resolves:
@@ -183,7 +193,7 @@ $worker = {
                     ResolvedBy            = $res.By
                     SamAccountName        = $u.SamAccountName
                     UserPrincipalName     = $u.UserPrincipalName
-                    DisplayName           = $u.Name
+                    DisplayName           = (Clean-Text $u.Name)
                     Enabled               = $u.Enabled
                     LockedOut             = $u.LockedOut
                     Expired               = $expired
@@ -195,10 +205,10 @@ $worker = {
                     PasswordNeverExpires  = $u.PasswordNeverExpires
                     WhenCreated           = $u.WhenCreated
                     WhenChanged           = $u.WhenChanged
-                    Department            = $u.Department
-                    Title                 = $u.Title
-                    Description           = $u.Description
-                    DistinguishedName     = $u.DistinguishedName
+                    Department            = (Clean-Text $u.Department)
+                    Title                 = (Clean-Text $u.Title)
+                    Description           = (Clean-Text $u.Description)
+                    DistinguishedName     = (Clean-Text $u.DistinguishedName)
                     AuditStatus           = $status
                 }
             }
