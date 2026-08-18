@@ -220,15 +220,13 @@ $lblInput.Size     = New-Object System.Drawing.Size(140, 20)
 
 $txtInput          = New-Object System.Windows.Forms.TextBox
 $txtInput.Location = New-Object System.Drawing.Point(155, 12)
-$txtInput.Size     = New-Object System.Drawing.Size(870, 22)
+$txtInput.Size     = New-Object System.Drawing.Size(600, 22)
 $txtInput.ReadOnly = $true
-$txtInput.Anchor   = 'Top,Left,Right'
 
 $btnInput          = New-Object System.Windows.Forms.Button
 $btnInput.Text     = 'Browse...'
-$btnInput.Location = New-Object System.Drawing.Point(1035, 11)
+$btnInput.Location = New-Object System.Drawing.Point(765, 11)
 $btnInput.Size     = New-Object System.Drawing.Size(100, 24)
-$btnInput.Anchor   = 'Top,Right'
 
 # Row 2 : output CSV
 $lblOutput          = New-Object System.Windows.Forms.Label
@@ -238,15 +236,13 @@ $lblOutput.Size     = New-Object System.Drawing.Size(140, 20)
 
 $txtOutput          = New-Object System.Windows.Forms.TextBox
 $txtOutput.Location = New-Object System.Drawing.Point(155, 45)
-$txtOutput.Size     = New-Object System.Drawing.Size(870, 22)
+$txtOutput.Size     = New-Object System.Drawing.Size(600, 22)
 $txtOutput.ReadOnly = $true
-$txtOutput.Anchor   = 'Top,Left,Right'
 
 $btnOutput          = New-Object System.Windows.Forms.Button
 $btnOutput.Text     = 'Browse...'
-$btnOutput.Location = New-Object System.Drawing.Point(1035, 44)
+$btnOutput.Location = New-Object System.Drawing.Point(765, 44)
 $btnOutput.Size     = New-Object System.Drawing.Size(100, 24)
-$btnOutput.Anchor   = 'Top,Right'
 
 # Row 3 : thresholds & options
 $lblWarn          = New-Object System.Windows.Forms.Label
@@ -313,19 +309,16 @@ $panelBottom.Height = 92
 
 $progress          = New-Object System.Windows.Forms.ProgressBar
 $progress.Location = New-Object System.Drawing.Point(12, 10)
-$progress.Size     = New-Object System.Drawing.Size(1140, 20)
-$progress.Anchor   = 'Top,Left,Right'
+$progress.Size     = New-Object System.Drawing.Size(900, 20)
 
 $lblStatus          = New-Object System.Windows.Forms.Label
 $lblStatus.Location = New-Object System.Drawing.Point(12, 38)
-$lblStatus.Size     = New-Object System.Drawing.Size(1140, 20)
-$lblStatus.Anchor   = 'Top,Left,Right'
+$lblStatus.Size     = New-Object System.Drawing.Size(900, 20)
 $lblStatus.Text     = 'Select an input file and an output path, then click Run Audit.'
 
 $lblSummary           = New-Object System.Windows.Forms.Label
 $lblSummary.Location  = New-Object System.Drawing.Point(12, 62)
-$lblSummary.Size      = New-Object System.Drawing.Size(1140, 22)
-$lblSummary.Anchor    = 'Top,Left,Right'
+$lblSummary.Size      = New-Object System.Drawing.Size(900, 22)
 $lblSummary.Font      = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
 
 $panelBottom.Controls.AddRange(@($progress, $lblStatus, $lblSummary))
@@ -553,4 +546,33 @@ $form.Add_FormClosing({
 })
 
 # ---------------------------------------------------------------------------
+# Reliable layout: reposition stretchy controls to the real window width.
+# (Replaces anchoring, which misbehaves for right-aligned controls inside
+#  docked panels created programmatically.)
+# ---------------------------------------------------------------------------
+$LayoutControls = {
+    $margin = 12
+    $btnW   = 100
+    $labelW = 155
+
+    $w    = $panelTop.ClientSize.Width
+    $btnX = $w - $margin - $btnW
+    if ($btnX -lt ($labelW + 120)) { $btnX = $labelW + 120 }  # keep on-screen if tiny
+    $txtW = $btnX - $labelW - 8
+
+    $btnInput.Left  = $btnX
+    $btnOutput.Left = $btnX
+    $txtInput.Width  = $txtW
+    $txtOutput.Width = $txtW
+
+    $bw = $panelBottom.ClientSize.Width - (2 * $margin)
+    if ($bw -lt 200) { $bw = 200 }
+    $progress.Width   = $bw
+    $lblStatus.Width  = $bw
+    $lblSummary.Width = $bw
+}
+
+$form.Add_Shown($LayoutControls)
+$form.Add_SizeChanged($LayoutControls)
+
 [void]$form.ShowDialog()
