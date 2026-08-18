@@ -41,6 +41,7 @@ $sync.Total      = 0
 $sync.Done       = $false
 $sync.Cancel     = $false
 $sync.Error      = $null
+$sync.Status     = $null
 
 # Column order used everywhere (grid + CSV)
 $script:Columns = @(
@@ -61,7 +62,8 @@ $worker = {
         $props = @(
             'Enabled','LastLogonDate','PasswordLastSet','AccountExpirationDate',
             'WhenCreated','WhenChanged','LockedOut','Department','Title',
-            'Description','UserPrincipalName','PasswordNeverExpires','mail','DisplayName'
+            'Description','UserPrincipalName','PasswordNeverExpires','mail',
+            'mailNickname','DisplayName','SamAccountName','Name'
         )
 
         # DC list is only needed for the accurate last-logon option
@@ -85,30 +87,71 @@ $worker = {
             return $best
         }
 
-        # Try direct identity, then fall back to an attribute filter so display names,
-        # UPNs or emails are still resolved instead of being marked "Not Found".
-        function Resolve-ADUserFlexible {
-            param($Value, $Props)
-            $v = "$Value".Trim()
+        # ------------------------------------------------------------------
+        # 1) Load the whole directory ONCE (fast, single query) and build a
+        #    set of per-attribute indexes so any identifier format resolves:
+        #    SamAccountName, full UPN, UPN prefix (before @), full mail,
+        #    mail prefix, mailNickname, DisplayName, Name (CN).
+        #    This is why "abbie.briggs" (a UPN/mail prefix, SAM = "briggs")
+        #    now resolves instead of being reported as Not Found.
+        # ------------------------------------------------------------------
+        $sync.Status = 'Loading directory (one-time)...'
+        $allUsers = Get-ADUser -Filter * -Properties $props -ResultPageSize 2000 -ErrorAction Stop
 
-            try {
-                return [PSCustomObject]@{ User = (Get-ADUser -Identity $v -Properties $Props -ErrorAction Stop); By = 'Identity' }
-            } catch { }
+        $sync.Status = 'Indexing directory...'
+        $indexNames = @('SamAccountName','UPN','UPNPrefix','mail','mailPrefix','mailNickname','DisplayName','Name')
+        $idx = @{}   # per-attribute : key(lower) -> user
+        $amb = @{}   # per-attribute : key(lower) -> $true when >1 distinct user shares it
+        foreach ($n in $indexNames) { $idx[$n] = @{}; $amb[$n] = @{} }
 
-            $safe   = $v.Replace("'", "''")
-            $filter = "SamAccountName -eq '$safe' -or UserPrincipalName -eq '$safe' -or mail -eq '$safe' -or Name -eq '$safe' -or DisplayName -eq '$safe'"
-            $found  = @(Get-ADUser -Filter $filter -Properties $Props -ErrorAction SilentlyContinue)
-
-            if     ($found.Count -eq 1) { return [PSCustomObject]@{ User = $found[0]; By = 'Filter' } }
-            elseif ($found.Count -gt 1) { return [PSCustomObject]@{ User = $null;     By = "Ambiguous ($($found.Count))" } }
-            else                        { return [PSCustomObject]@{ User = $null;     By = 'NotFound' } }
+        function Add-Key {
+            param($Name, $Key, $User)
+            if ([string]::IsNullOrWhiteSpace($Key)) { return }
+            $k = ([string]$Key).Trim().ToLowerInvariant()
+            $h = $idx[$Name]
+            if ($h.ContainsKey($k)) {
+                if ($h[$k].DistinguishedName -ne $User.DistinguishedName) { $amb[$Name][$k] = $true }
+            } else {
+                $h[$k] = $User
+            }
         }
 
+        foreach ($u in $allUsers) {
+            Add-Key 'SamAccountName' $u.SamAccountName $u
+            Add-Key 'DisplayName'    $u.DisplayName    $u
+            Add-Key 'Name'           $u.Name           $u
+            Add-Key 'mailNickname'   $u.mailNickname   $u
+            if ($u.UserPrincipalName) {
+                Add-Key 'UPN'       $u.UserPrincipalName $u
+                Add-Key 'UPNPrefix' ($u.UserPrincipalName -split '@')[0] $u
+            }
+            if ($u.mail) {
+                Add-Key 'mail'       $u.mail $u
+                Add-Key 'mailPrefix' ($u.mail -split '@')[0] $u
+            }
+        }
+
+        # Look up one input value against the indexes, in priority order.
+        function Resolve-FromIndex {
+            param($Value)
+            $k = ([string]$Value).Trim().ToLowerInvariant()
+            if ($k -eq '') { return [PSCustomObject]@{ User = $null; By = 'NotFound' } }
+            foreach ($n in $indexNames) {
+                if ($amb[$n].ContainsKey($k)) { return [PSCustomObject]@{ User = $null;        By = "Ambiguous ($n)" } }
+                if ($idx[$n].ContainsKey($k)) { return [PSCustomObject]@{ User = $idx[$n][$k];  By = $n } }
+            }
+            return [PSCustomObject]@{ User = $null; By = 'NotFound' }
+        }
+
+        # ------------------------------------------------------------------
+        # 2) Match every input line against the index (in-memory, O(1) each)
+        # ------------------------------------------------------------------
+        $sync.Status = $null   # switch back to processed/total display
         foreach ($acc in $accounts) {
             if ($sync.Cancel) { break }
             $now = Get-Date
 
-            try   { $res = Resolve-ADUserFlexible -Value $acc -Props $props }
+            try   { $res = Resolve-FromIndex -Value $acc }
             catch { $res = [PSCustomObject]@{ User = $null; By = 'Error' } }
 
             if ($res.User) {
@@ -410,6 +453,7 @@ function Complete-Audit {
 
     $lblSummary.Text = "Total $total   |   Active $active   |   $($script:warnLabel) $warn   |   $($script:critLabel) $crit   |   Never $never   |   Expired $expired   |   Disabled $disabled   |   Not found $missing"
 
+    $progress.Style = 'Blocks'
     $progress.Value = 100
     if ($errMsg)          { $lblStatus.Text = "Completed with error: $errMsg" }
     elseif ($sync.Cancel) { $lblStatus.Text = "Cancelled. $total accounts processed. ($($script:dupCount) duplicates removed)" }
@@ -430,8 +474,14 @@ $timer.Interval = 300
 $timer.Add_Tick({
     $p = $sync.Processed
     $t = $sync.Total
-    if ($t -gt 0) { $progress.Value = [math]::Min(100, [int](($p / $t) * 100)) }
-    $lblStatus.Text = "Processing $p / $t ..."
+    if ($sync.Status) {
+        $progress.Style = 'Marquee'
+        $lblStatus.Text = $sync.Status
+    } else {
+        $progress.Style = 'Blocks'
+        if ($t -gt 0) { $progress.Value = [math]::Min(100, [int](($p / $t) * 100)) }
+        $lblStatus.Text = "Matching $p / $t ..."
+    }
     if ($sync.Done) {
         $timer.Stop()
         Complete-Audit
@@ -504,6 +554,7 @@ $btnRun.Add_Click({
     $sync.Done      = $false
     $sync.Cancel    = $false
     $sync.Error     = $null
+    $sync.Status    = 'Starting...'
 
     $config = @{
         WarnDays          = [int]$numWarn.Value
