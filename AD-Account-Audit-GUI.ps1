@@ -47,7 +47,7 @@ $sync.Status     = $null
 
 # Column order used everywhere (grid + CSV)
 $script:Columns = @(
-    'InputValue','ResolvedBy','SamAccountName','UserPrincipalName','DisplayName',
+    'InputValue','ResolvedBy','MatchCount','SamAccountName','UserPrincipalName','DisplayName',
     'Enabled','LockedOut','Expired','AccountExpirationDate','LastLogon',
     'DaysSinceLogon','PasswordLastSet','DaysSincePassword','PasswordNeverExpires',
     'WhenCreated','WhenChanged','Department','Title','Description',
@@ -122,7 +122,21 @@ $worker = {
             $k = ([string]$Key).Trim().ToLowerInvariant()
             $h = $idx[$Name]
             if ($h.ContainsKey($k)) {
-                if ($h[$k].DistinguishedName -ne $User.DistinguishedName) { $amb[$Name][$k] = $true }
+                $existing = $h[$k]
+                if ($amb[$Name].ContainsKey($k)) {
+                    # already a collision list: add this user if not already present
+                    $list = $amb[$Name][$k]
+                    $seen = $false
+                    foreach ($x in $list) { if ($x.DistinguishedName -eq $User.DistinguishedName) { $seen = $true; break } }
+                    if (-not $seen) { [void]$list.Add($User) }
+                }
+                elseif ($existing.DistinguishedName -ne $User.DistinguishedName) {
+                    # first collision on this key: start a list holding BOTH accounts
+                    $list = New-Object System.Collections.ArrayList
+                    [void]$list.Add($existing)
+                    [void]$list.Add($User)
+                    $amb[$Name][$k] = $list
+                }
             } else {
                 $h[$k] = $User
             }
@@ -144,19 +158,72 @@ $worker = {
         }
 
         # Look up one input value against the indexes, in priority order.
+        # Returns ALL matching accounts (a list), so duplicates are surfaced.
         function Resolve-FromIndex {
             param($Value)
             $k = ([string]$Value).Trim().ToLowerInvariant()
-            if ($k -eq '') { return [PSCustomObject]@{ User = $null; By = 'NotFound' } }
+            if ($k -eq '') { return [PSCustomObject]@{ Users = @(); By = 'NotFound' } }
             foreach ($n in $indexNames) {
-                if ($amb[$n].ContainsKey($k)) { return [PSCustomObject]@{ User = $null;        By = "Ambiguous ($n)" } }
-                if ($idx[$n].ContainsKey($k)) { return [PSCustomObject]@{ User = $idx[$n][$k];  By = $n } }
+                if ($amb[$n].ContainsKey($k)) { return [PSCustomObject]@{ Users = @($amb[$n][$k]); By = $n } }
+                if ($idx[$n].ContainsKey($k)) { return [PSCustomObject]@{ Users = @($idx[$n][$k]); By = $n } }
             }
-            return [PSCustomObject]@{ User = $null; By = 'NotFound' }
+            return [PSCustomObject]@{ Users = @(); By = 'NotFound' }
+        }
+
+        # Build a full result row for one resolved account.
+        function New-ResultRow {
+            param($InputVal, $By, $Count, $U, $Now, $Config, $DcList)
+
+            $lastLogon = $U.LastLogonDate
+            if ($Config.AccurateLastLogon -and $DcList.Count -gt 0) {
+                $realLL = Get-TrueLastLogon -Sam $U.SamAccountName -DCs $DcList
+                if ($realLL) { $lastLogon = $realLL }
+            }
+            $daysLogon = $null
+            if ($lastLogon)         { $daysLogon = [math]::Round(($Now - $lastLogon).TotalDays, 0) }
+            $daysPwd = $null
+            if ($U.PasswordLastSet) { $daysPwd   = [math]::Round(($Now - $U.PasswordLastSet).TotalDays, 0) }
+
+            $expired = $false
+            if ($U.AccountExpirationDate -and $U.AccountExpirationDate -lt $Now) { $expired = $true }
+
+            $status = 'Active'
+            if     (-not $U.Enabled)                 { $status = 'Disabled' }
+            elseif ($expired)                        { $status = 'Expired' }
+            elseif (-not $lastLogon)                 { $status = 'Never Logged On' }
+            elseif ($daysLogon -gt $Config.CritDays) { $status = "Inactive > $($Config.CritDays)d" }
+            elseif ($daysLogon -gt $Config.WarnDays) { $status = "Inactive > $($Config.WarnDays)d" }
+
+            return [PSCustomObject]@{
+                InputValue            = $InputVal
+                ResolvedBy            = $By
+                MatchCount            = $Count
+                SamAccountName        = $U.SamAccountName
+                UserPrincipalName     = $U.UserPrincipalName
+                DisplayName           = (Clean-Text $U.Name)
+                Enabled               = $U.Enabled
+                LockedOut             = $U.LockedOut
+                Expired               = $expired
+                AccountExpirationDate = $U.AccountExpirationDate
+                LastLogon             = $lastLogon
+                DaysSinceLogon        = $daysLogon
+                PasswordLastSet       = $U.PasswordLastSet
+                DaysSincePassword     = $daysPwd
+                PasswordNeverExpires  = $U.PasswordNeverExpires
+                WhenCreated           = $U.WhenCreated
+                WhenChanged           = $U.WhenChanged
+                Department            = (Clean-Text $U.Department)
+                Title                 = (Clean-Text $U.Title)
+                Description           = (Clean-Text $U.Description)
+                DistinguishedName     = (Clean-Text $U.DistinguishedName)
+                AuditStatus           = $status
+            }
         }
 
         # ------------------------------------------------------------------
-        # 2) Match every input line against the index (in-memory, O(1) each)
+        # 2) Match every input line against the index (in-memory, O(1) each).
+        #    One input can yield several rows when several accounts match
+        #    (duplicates) - each is emitted with its real status + MatchCount.
         # ------------------------------------------------------------------
         $sync.Status = $null   # switch back to processed/total display
         foreach ($acc in $accounts) {
@@ -164,61 +231,22 @@ $worker = {
             $now = Get-Date
 
             try   { $res = Resolve-FromIndex -Value $acc }
-            catch { $res = [PSCustomObject]@{ User = $null; By = 'Error' } }
+            catch { $res = [PSCustomObject]@{ Users = @(); By = 'Error' } }
 
-            if ($res.User) {
-                $u = $res.User
-
-                $lastLogon = $u.LastLogonDate
-                if ($config.AccurateLastLogon -and $dcList.Count -gt 0) {
-                    $realLL = Get-TrueLastLogon -Sam $u.SamAccountName -DCs $dcList
-                    if ($realLL) { $lastLogon = $realLL }
-                }
-
-                $daysLogon = $null
-                if ($lastLogon)         { $daysLogon = [math]::Round(($now - $lastLogon).TotalDays, 0) }
-                $daysPwd = $null
-                if ($u.PasswordLastSet) { $daysPwd   = [math]::Round(($now - $u.PasswordLastSet).TotalDays, 0) }
-
-                $expired = $false
-                if ($u.AccountExpirationDate -and $u.AccountExpirationDate -lt $now) { $expired = $true }
-
-                $status = 'Active'
-                if     (-not $u.Enabled)                   { $status = 'Disabled' }
-                elseif ($expired)                          { $status = 'Expired' }
-                elseif (-not $lastLogon)                   { $status = 'Never Logged On' }
-                elseif ($daysLogon -gt $config.CritDays)   { $status = "Inactive > $($config.CritDays)d" }
-                elseif ($daysLogon -gt $config.WarnDays)   { $status = "Inactive > $($config.WarnDays)d" }
-
-                $row = [PSCustomObject]@{
-                    InputValue            = $acc
-                    ResolvedBy            = $res.By
-                    SamAccountName        = $u.SamAccountName
-                    UserPrincipalName     = $u.UserPrincipalName
-                    DisplayName           = (Clean-Text $u.Name)
-                    Enabled               = $u.Enabled
-                    LockedOut             = $u.LockedOut
-                    Expired               = $expired
-                    AccountExpirationDate = $u.AccountExpirationDate
-                    LastLogon             = $lastLogon
-                    DaysSinceLogon        = $daysLogon
-                    PasswordLastSet       = $u.PasswordLastSet
-                    DaysSincePassword     = $daysPwd
-                    PasswordNeverExpires  = $u.PasswordNeverExpires
-                    WhenCreated           = $u.WhenCreated
-                    WhenChanged           = $u.WhenChanged
-                    Department            = (Clean-Text $u.Department)
-                    Title                 = (Clean-Text $u.Title)
-                    Description           = (Clean-Text $u.Description)
-                    DistinguishedName     = (Clean-Text $u.DistinguishedName)
-                    AuditStatus           = $status
+            $matched = @($res.Users)
+            if ($matched.Count -gt 0) {
+                $by = if ($matched.Count -gt 1) { "Ambiguous ($($res.By))" } else { $res.By }
+                foreach ($u in $matched) {
+                    [void]$sync.Results.Add(
+                        (New-ResultRow -InputVal $acc -By $by -Count $matched.Count -U $u -Now $now -Config $config -DcList $dcList)
+                    )
                 }
             }
             else {
-                $status = if ($res.By -like 'Ambiguous*') { 'Ambiguous' } else { 'Not Found' }
-                $row = [PSCustomObject]@{
+                [void]$sync.Results.Add([PSCustomObject]@{
                     InputValue            = $acc
                     ResolvedBy            = $res.By
+                    MatchCount            = 0
                     SamAccountName        = $acc
                     UserPrincipalName     = ''
                     DisplayName           = ''
@@ -237,11 +265,9 @@ $worker = {
                     Title                 = ''
                     Description           = ''
                     DistinguishedName     = ''
-                    AuditStatus           = $status
-                }
+                    AuditStatus           = 'Not Found'
+                })
             }
-
-            [void]$sync.Results.Add($row)
             $sync.Processed++
         }
     }
@@ -446,7 +472,7 @@ function Export-AuditXlsx {
     $lastCol = Get-ColLetter ($nCols - 1)
     $lastRow = $Rows.Count + 1
 
-    $numeric = @{ 'DaysSinceLogon' = $true; 'DaysSincePassword' = $true }
+    $numeric = @{ 'DaysSinceLogon' = $true; 'DaysSincePassword' = $true; 'MatchCount' = $true }
     $dateCol = @{ 'LastLogon'=$true;'PasswordLastSet'=$true;'WhenCreated'=$true;'WhenChanged'=$true;'AccountExpirationDate'=$true }
 
     function Get-StatusStyle {
@@ -618,9 +644,10 @@ function Complete-Audit {
     $never    = @($rows | Where-Object { $_.AuditStatus -eq 'Never Logged On' }).Count
     $expired  = @($rows | Where-Object { $_.AuditStatus -eq 'Expired' }).Count
     $disabled = @($rows | Where-Object { $_.AuditStatus -eq 'Disabled' }).Count
-    $missing  = @($rows | Where-Object { $_.AuditStatus -eq 'Not Found' -or $_.AuditStatus -eq 'Ambiguous' }).Count
+    $missing  = @($rows | Where-Object { $_.AuditStatus -eq 'Not Found' }).Count
+    $dupRows  = @($rows | Where-Object { try { [int]$_.MatchCount -gt 1 } catch { $false } }).Count
 
-    $lblSummary.Text = "Total $total   |   Active $active   |   $($script:warnLabel) $warn   |   $($script:critLabel) $crit   |   Never $never   |   Expired $expired   |   Disabled $disabled   |   Not found $missing"
+    $lblSummary.Text = "Total $total   |   Active $active   |   $($script:warnLabel) $warn   |   $($script:critLabel) $crit   |   Never $never   |   Expired $expired   |   Disabled $disabled   |   Not found $missing   |   Duplicate matches $dupRows"
 
     $progress.Style = 'Blocks'
     $progress.Value = 100
