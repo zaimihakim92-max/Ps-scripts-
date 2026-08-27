@@ -82,6 +82,7 @@ $script:Headers = @{
 }
 
 $script:Computers = @()
+$script:GcServer  = ''   # catalogue global decouvert au lancement du traitement
 
 # ==================================================================
 #  Fonctions
@@ -107,9 +108,106 @@ function Update-RowColors {
             $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(255,245,204)
         }
         else {
-            $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::White
+            $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::Empty
         }
     }
+}
+
+function Copy-ToClipboard {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
+    try { [System.Windows.Forms.Clipboard]::SetText($Text); return $true } catch { return $false }
+}
+
+function Get-DisplayedEmails {
+    # Emails uniques des lignes actuellement affichees (filtre applique)
+    param([System.Windows.Forms.DataGridView]$Grid)
+    $mails = foreach ($r in $Grid.Rows) {
+        if ($r.IsNewRow) { continue }
+        $m = [string]$r.Cells['mail'].Value
+        if ($m) { $m.Trim() }
+    }
+    return @($mails | Where-Object { $_ } | Select-Object -Unique)
+}
+
+function Get-SelectedEmails {
+    param([System.Windows.Forms.DataGridView]$Grid)
+    $mails = foreach ($r in $Grid.SelectedRows) {
+        $m = [string]$r.Cells['mail'].Value
+        if ($m) { $m.Trim() }
+    }
+    return @($mails | Where-Object { $_ } | Select-Object -Unique)
+}
+
+function Update-Counts {
+    param(
+        [System.Data.DataTable]$Table,
+        [System.Windows.Forms.BindingSource]$Binding,
+        [System.Windows.Forms.ToolStripStatusLabel]$Label
+    )
+    $total = $Table.Rows.Count
+    if ($total -eq 0) { $Label.Text = ''; return }
+    $ok     = @($Table.Select("status = 'OK'")).Count
+    $noMach = @($Table.Select("status LIKE 'Machine introuvable%'")).Count
+    $noUser = @($Table.Select("status LIKE 'Utilisateur AD introuvable%'")).Count
+    $noLast = @($Table.Select("status LIKE 'Aucun dernier%'")).Count
+    $errAd  = @($Table.Select("status LIKE 'Erreur requete%'")).Count
+    $Label.Text = "Affiche : $($Binding.Count) / $total   |   OK : $ok   |   Machine KO : $noMach   |   User KO : $noUser   |   Sans user : $noLast   |   Erreur AD : $errAd"
+}
+
+function Apply-Filter {
+    param(
+        [System.Windows.Forms.TextBox]$TextBox,
+        [System.Windows.Forms.ComboBox]$Combo,
+        [System.Windows.Forms.BindingSource]$Binding,
+        [System.Windows.Forms.DataGridView]$Grid,
+        [System.Data.DataTable]$Table,
+        [System.Windows.Forms.ToolStripStatusLabel]$CountLabel
+    )
+    $clauses = @()
+
+    $q = $TextBox.Text.Trim()
+    $q = $q -replace '([\[\]%*])','[$1]'      # echappe les jokers DataView
+    $q = $q.Replace("'","''")
+    if ($q) {
+        $parts = foreach ($c in $script:TextFilterColumns) { "$c LIKE '%$q%'" }
+        $clauses += '(' + ($parts -join ' OR ') + ')'
+    }
+
+    switch ($Combo.SelectedItem) {
+        'OK'                      { $clauses += "status = 'OK'" }
+        'Machine introuvable'     { $clauses += "status LIKE 'Machine introuvable%'" }
+        'Utilisateur introuvable' { $clauses += "status LIKE 'Utilisateur AD introuvable%'" }
+        'Sans utilisateur'        { $clauses += "status LIKE 'Aucun dernier%'" }
+        'Erreur AD'               { $clauses += "status LIKE 'Erreur requete%'" }
+    }
+
+    $Binding.Filter = if ($clauses.Count) { $clauses -join ' AND ' } else { $null }
+    Update-RowColors -Grid $Grid
+    Update-Counts -Table $Table -Binding $Binding -Label $CountLabel
+}
+
+function Resolve-ADUser {
+    # Recherche robuste : -Filter (pas d'exception si absent) + repli catalogue global.
+    param([string]$Sam, [string]$GcServer)
+
+    if ([string]::IsNullOrWhiteSpace($Sam)) { return $null }
+    $Sam   = $Sam.Trim().Replace("'","''")
+    $props = 'DisplayName','Mail','UserPrincipalName'
+
+    # 1) Domaine par defaut. -Filter renvoie $null si non trouve (n'echoue pas).
+    #    -ErrorAction Stop ne sert qu'a remonter les VRAIES erreurs (DC, droits...).
+    $u = Get-ADUser -Filter "SamAccountName -eq '$Sam'" -Properties $props -ErrorAction Stop |
+         Select-Object -First 1
+    if ($u) { return $u }
+
+    # 2) Fallback catalogue global : couvre les utilisateurs d'un autre domaine de la foret.
+    if ($GcServer) {
+        $u = Get-ADUser -Server $GcServer -Filter "SamAccountName -eq '$Sam'" `
+                -Properties $props -ErrorAction Stop |
+             Select-Object -First 1
+    }
+    return $u
 }
 
 function Invoke-Processing {
@@ -130,6 +228,13 @@ function Invoke-Processing {
     Get-CMResource -ResourceType System -Fast |
         Where-Object Name |
         ForEach-Object { $CmIndex[$_.Name.ToLower()] = $_ }
+
+    # Catalogue global (fallback multi-domaines / foret)
+    try {
+        $gc = Get-ADDomainController -Discover -Service GlobalCatalog -ErrorAction Stop
+        $script:GcServer = "$(@($gc.HostName)[0]):3268"
+    }
+    catch { $script:GcServer = '' }
 
     $Progress.Minimum = 0
     $Progress.Maximum = [Math]::Max(1, $Computers.Count)
@@ -174,22 +279,25 @@ function Invoke-Processing {
         $State       = 'OK'
 
         if ($LastLogon) {
-            $SamAccount = $LastLogon.Split('\')[-1]
+            $SamAccount = $LastLogon.Split('\')[-1].Trim()
             try {
-                $ADUser = Get-ADUser -Identity $SamAccount `
-                    -Properties DisplayName,Mail,UserPrincipalName -ErrorAction Stop
-
-                $DisplayName = $ADUser.DisplayName
-                $Mail        = $ADUser.Mail
-                $UPN         = $ADUser.UserPrincipalName
-                $Guid        = $ADUser.ObjectGUID
-                $UserType    = 'Member'
-
-                # Si mail vide, on force avec l'UPN
-                if ([string]::IsNullOrWhiteSpace($Mail)) { $Mail = $UPN }
+                $ADUser = Resolve-ADUser -Sam $SamAccount -GcServer $script:GcServer
+                if ($ADUser) {
+                    $DisplayName = $ADUser.DisplayName
+                    $Mail        = $ADUser.Mail
+                    $UPN         = $ADUser.UserPrincipalName
+                    $Guid        = $ADUser.ObjectGUID
+                    $UserType    = 'Member'
+                    # Si mail vide, on force avec l'UPN
+                    if ([string]::IsNullOrWhiteSpace($Mail)) { $Mail = $UPN }
+                }
+                else {
+                    $State = "Utilisateur AD introuvable : $SamAccount"
+                }
             }
             catch {
-                $State = "Utilisateur AD introuvable : $SamAccount"
+                # Vraie erreur AD (DC injoignable, droits...) et non un simple "absent"
+                $State = "Erreur requete AD ($SamAccount) : $($_.Exception.Message)"
             }
         }
         else {
@@ -334,7 +442,32 @@ $lblFilterTitle.AutoSize = $true
 
 $txtFilter = New-Object System.Windows.Forms.TextBox
 $txtFilter.Location = New-Object System.Drawing.Point(60,47)
-$txtFilter.Size     = New-Object System.Drawing.Size(320,24)
+$txtFilter.Size     = New-Object System.Drawing.Size(240,24)
+
+$btnClear = New-Object System.Windows.Forms.Button
+$btnClear.Text     = "X"
+$btnClear.Size     = New-Object System.Drawing.Size(26,24)
+$btnClear.Location = New-Object System.Drawing.Point(304,46)
+$tt = New-Object System.Windows.Forms.ToolTip
+$tt.SetToolTip($btnClear, "Effacer le filtre")
+
+$lblStatusTitle = New-Object System.Windows.Forms.Label
+$lblStatusTitle.Text     = "Statut :"
+$lblStatusTitle.Location = New-Object System.Drawing.Point(342,50)
+$lblStatusTitle.AutoSize = $true
+
+$cboStatus = New-Object System.Windows.Forms.ComboBox
+$cboStatus.DropDownStyle = 'DropDownList'
+$cboStatus.Location = New-Object System.Drawing.Point(395,47)
+$cboStatus.Size     = New-Object System.Drawing.Size(190,24)
+[void]$cboStatus.Items.AddRange(@('Tous','OK','Machine introuvable','Utilisateur introuvable','Sans utilisateur','Erreur AD'))
+$cboStatus.SelectedIndex = 0
+
+$btnCopyEmails = New-Object System.Windows.Forms.Button
+$btnCopyEmails.Text    = "Copier les emails"
+$btnCopyEmails.Size    = New-Object System.Drawing.Size(150,28)
+$btnCopyEmails.Anchor  = 'Top,Right'
+$btnCopyEmails.Enabled = $false
 
 $btnExport = New-Object System.Windows.Forms.Button
 $btnExport.Text    = "Export CSV..."
@@ -342,7 +475,9 @@ $btnExport.Size    = New-Object System.Drawing.Size(120,28)
 $btnExport.Anchor  = 'Top,Right'
 $btnExport.Enabled = $false
 
-$Top.Controls.AddRange(@($btnFile,$lblFile,$btnRun,$lblFilterTitle,$txtFilter,$btnExport))
+$Top.Controls.AddRange(@(
+    $btnFile,$lblFile,$btnRun,$lblFilterTitle,$txtFilter,$btnClear,
+    $lblStatusTitle,$cboStatus,$btnCopyEmails,$btnExport))
 
 # --- Grille ---
 $Grid = New-Object System.Windows.Forms.DataGridView
@@ -359,12 +494,78 @@ $Grid.SelectionMode             = 'FullRowSelect'
 $Grid.MultiSelect               = $true
 $Grid.RowHeadersVisible         = $false
 $Grid.ColumnHeadersHeightSizeMode = 'AutoSize'
+$Grid.ClipboardCopyMode         = 'EnableWithoutHeaderText'   # Ctrl+C copie la selection
+$Grid.BorderStyle               = 'None'
+$Grid.BackgroundColor           = [System.Drawing.Color]::White
+$Grid.Font                      = New-Object System.Drawing.Font('Segoe UI',9)
+$Grid.RowTemplate.Height        = 24
+$Grid.AlternatingRowsDefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(247,249,252)
+$Grid.ColumnHeadersDefaultCellStyle.Font = New-Object System.Drawing.Font('Segoe UI',9,[System.Drawing.FontStyle]::Bold)
 
 $Grid.Add_DataBindingComplete({
     foreach ($c in $Grid.Columns) {
         if ($script:Headers.ContainsKey($c.Name)) { $c.HeaderText = $script:Headers[$c.Name] }
     }
+    # Fige la colonne machine : elle reste visible au defilement horizontal
+    if ($Grid.Columns.Contains('machine')) { $Grid.Columns['machine'].Frozen = $true }
 })
+
+# --- Menu contextuel (clic droit) ---
+$ctx = New-Object System.Windows.Forms.ContextMenuStrip
+$miMail  = $ctx.Items.Add("Copier l'email")
+$miMails = $ctx.Items.Add("Copier les emails (selection)")
+$miRow   = $ctx.Items.Add("Copier la ligne")
+[void]$ctx.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+$miWrite = $ctx.Items.Add("Ecrire un mail...")
+[void]$ctx.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+$miAll   = $ctx.Items.Add("Tout selectionner")
+$Grid.ContextMenuStrip = $ctx
+
+# Selectionne la ligne sous le curseur au clic droit
+$Grid.Add_CellMouseDown({
+    param($s,$e)
+    if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right -and $e.RowIndex -ge 0) {
+        $row = $Grid.Rows[$e.RowIndex]
+        if (-not $row.Selected) { $Grid.ClearSelection(); $row.Selected = $true }
+        if ($e.ColumnIndex -ge 0) { $Grid.CurrentCell = $row.Cells[$e.ColumnIndex] }
+    }
+})
+
+# Double-clic : copie l'email de la ligne
+$Grid.Add_CellDoubleClick({
+    param($s,$e)
+    if ($e.RowIndex -lt 0) { return }
+    $m = [string]$Grid.Rows[$e.RowIndex].Cells['mail'].Value
+    if (Copy-ToClipboard $m) { $lblStatus.Text = "Email copie : $m" }
+})
+
+$miMail.Add_Click({
+    if (-not $Grid.CurrentRow) { return }
+    $m = [string]$Grid.CurrentRow.Cells['mail'].Value
+    if (Copy-ToClipboard $m) { $lblStatus.Text = "Email copie : $m" }
+    else { $lblStatus.Text = "Aucun email sur cette ligne." }
+})
+$miMails.Add_Click({
+    $mails = Get-SelectedEmails -Grid $Grid
+    if ($mails.Count -and (Copy-ToClipboard ($mails -join '; '))) {
+        $lblStatus.Text = "$($mails.Count) email(s) copie(s)."
+    } else { $lblStatus.Text = "Aucun email dans la selection." }
+})
+$miRow.Add_Click({
+    if (-not $Grid.CurrentRow) { return }
+    $vals = foreach ($c in ($Grid.Columns | Sort-Object DisplayIndex)) {
+        if ($c.Visible) { [string]$Grid.CurrentRow.Cells[$c.Name].Value }
+    }
+    [void](Copy-ToClipboard ($vals -join "`t"))
+    $lblStatus.Text = "Ligne copiee."
+})
+$miWrite.Add_Click({
+    $mails = Get-SelectedEmails -Grid $Grid
+    if (-not $mails.Count) { $lblStatus.Text = "Aucun email dans la selection."; return }
+    try { Start-Process "mailto:$($mails -join ';')" }
+    catch { [void][System.Windows.Forms.MessageBox]::Show("Impossible d'ouvrir le client mail.","Mail",'OK','Warning') }
+})
+$miAll.Add_Click({ $Grid.SelectAll() })
 
 # --- Barre d'etat ---
 $Status    = New-Object System.Windows.Forms.StatusStrip
@@ -372,9 +573,12 @@ $lblStatus = New-Object System.Windows.Forms.ToolStripStatusLabel
 $lblStatus.Text      = "Pret."
 $lblStatus.Spring    = $true
 $lblStatus.TextAlign = 'MiddleLeft'
+$lblCounts = New-Object System.Windows.Forms.ToolStripStatusLabel
+$lblCounts.TextAlign = 'MiddleRight'
 $Progress  = New-Object System.Windows.Forms.ToolStripProgressBar
 $Progress.Size = New-Object System.Drawing.Size(240,16)
 [void]$Status.Items.Add($lblStatus)
+[void]$Status.Items.Add($lblCounts)
 [void]$Status.Items.Add($Progress)
 
 # Ordre d'ajout : Fill d'abord, puis Top / Bottom ramenes au premier plan
@@ -386,10 +590,12 @@ $Form.Controls.Add($Status); $Status.BringToFront()
 #  Evenements
 # ==================================================================
 $Form.Add_Shown({
-    $btnRun.Left    = $Top.ClientSize.Width - $btnRun.Width - 10
-    $btnRun.Top     = 10
-    $btnExport.Left = $Top.ClientSize.Width - $btnExport.Width - 10
-    $btnExport.Top  = 46
+    $btnRun.Left        = $Top.ClientSize.Width - $btnRun.Width - 10
+    $btnRun.Top         = 10
+    $btnExport.Left     = $Top.ClientSize.Width - $btnExport.Width - 10
+    $btnExport.Top      = 46
+    $btnCopyEmails.Left = $btnExport.Left - $btnCopyEmails.Width - 8
+    $btnCopyEmails.Top  = 46
 })
 
 $btnFile.Add_Click({
@@ -411,8 +617,9 @@ $btnRun.Add_Click({
     $Form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
     try {
         Invoke-Processing -Computers $script:Computers -Table $Table -Progress $Progress -Status $lblStatus
-        Update-RowColors -Grid $Grid
-        $btnExport.Enabled = ($Table.Rows.Count -gt 0)
+        Apply-Filter -TextBox $txtFilter -Combo $cboStatus -Binding $Binding -Grid $Grid -Table $Table -CountLabel $lblCounts
+        $btnExport.Enabled     = ($Table.Rows.Count -gt 0)
+        $btnCopyEmails.Enabled = ($Table.Rows.Count -gt 0)
     }
     catch {
         [void][System.Windows.Forms.MessageBox]::Show(
@@ -427,15 +634,22 @@ $btnRun.Add_Click({
 })
 
 $txtFilter.Add_TextChanged({
-    $q = $txtFilter.Text.Replace("'","''")
-    if ([string]::IsNullOrWhiteSpace($q)) {
-        $Binding.Filter = $null
+    Apply-Filter -TextBox $txtFilter -Combo $cboStatus -Binding $Binding -Grid $Grid -Table $Table -CountLabel $lblCounts
+})
+$cboStatus.Add_SelectedIndexChanged({
+    Apply-Filter -TextBox $txtFilter -Combo $cboStatus -Binding $Binding -Grid $Grid -Table $Table -CountLabel $lblCounts
+})
+$btnClear.Add_Click({
+    $txtFilter.Clear()
+    $cboStatus.SelectedIndex = 0
+})
+$btnCopyEmails.Add_Click({
+    $mails = Get-DisplayedEmails -Grid $Grid
+    if ($mails.Count -and (Copy-ToClipboard ($mails -join '; '))) {
+        $lblStatus.Text = "$($mails.Count) email(s) copie(s) dans le presse-papiers."
+    } else {
+        $lblStatus.Text = "Aucun email a copier."
     }
-    else {
-        $parts = foreach ($c in $script:TextFilterColumns) { "$c LIKE '%$q%'" }
-        $Binding.Filter = ($parts -join ' OR ')
-    }
-    Update-RowColors -Grid $Grid
 })
 
 $btnExport.Add_Click({
