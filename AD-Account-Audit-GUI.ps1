@@ -30,6 +30,8 @@
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 # ---------------------------------------------------------------------------
 # Shared, thread-safe state between the UI thread and the worker runspace
@@ -343,7 +345,7 @@ $btnCancel.Size     = New-Object System.Drawing.Size(110, 32)
 $btnCancel.Enabled  = $false
 
 $btnExport          = New-Object System.Windows.Forms.Button
-$btnExport.Text     = 'Export CSV'
+$btnExport.Text     = 'Export XLSX'
 $btnExport.Location = New-Object System.Drawing.Point(268, 122)
 $btnExport.Size     = New-Object System.Drawing.Size(130, 32)
 $btnExport.Enabled  = $false
@@ -412,17 +414,174 @@ function Set-RowColors {
     }
 }
 
+# ---------------------------------------------------------------------------
+# Native .xlsx writer (Open XML = a ZIP of XML parts). No third-party module,
+# no Excel/COM. Frozen header, autofilter, column widths, colour by status.
+# ---------------------------------------------------------------------------
+function Get-ColLetter {
+    param([int]$Index)   # 0-based
+    $n = $Index + 1
+    $s = ''
+    while ($n -gt 0) {
+        $r = ($n - 1) % 26
+        $s = ([char]([int][char]'A' + $r)) + $s
+        $n = [math]::Floor(($n - 1) / 26)
+    }
+    return $s
+}
+
+function ConvertTo-XmlText {
+    param([string]$s)
+    if ($null -eq $s) { return '' }
+    $s = [regex]::Replace($s, '[\x00-\x1F]', '')   # drop control chars
+    $s = $s.Replace('&','&amp;').Replace('<','&lt;').Replace('>','&gt;').Replace('"','&quot;').Replace("'",'&apos;')
+    return $s
+}
+
+function Export-AuditXlsx {
+    param($Rows, $Path)
+
+    $cols    = $script:Columns
+    $nCols   = $cols.Count
+    $lastCol = Get-ColLetter ($nCols - 1)
+    $lastRow = $Rows.Count + 1
+
+    $numeric = @{ 'DaysSinceLogon' = $true; 'DaysSincePassword' = $true }
+    $dateCol = @{ 'LastLogon'=$true;'PasswordLastSet'=$true;'WhenCreated'=$true;'WhenChanged'=$true;'AccountExpirationDate'=$true }
+
+    function Get-StatusStyle {
+        param($Status)
+        switch -Regex ("$Status") {
+            '^Not Found$'       { return 2 }
+            '^Ambiguous'        { return 3 }
+            '^Disabled$'        { return 4 }
+            '^Expired$'         { return 5 }
+            '^Never Logged On$' { return 6 }
+            default {
+                if ("$Status" -eq $script:critLabel) { return 7 }
+                if ("$Status" -eq $script:warnLabel) { return 8 }
+                return 0
+            }
+        }
+    }
+
+    $contentTypes = @'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>
+'@
+    $relsRoot = @'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>
+'@
+    $workbook = @'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="AD_Account_Audit" sheetId="1" r:id="rId1"/></sheets></workbook>
+'@
+    $wbRels = @'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>
+'@
+    $styles = @'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="10"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFD9D9D9"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFCDD2"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFE0B2"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE0E0E0"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFCC99"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFF1B5"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFB3B3"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFF9C4"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="9"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="5" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="6" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="7" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="8" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="9" borderId="0" xfId="0" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>
+'@
+
+    $enc = New-Object System.Text.UTF8Encoding($false)
+    if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
+    $fs  = [System.IO.File]::Open($Path, [System.IO.FileMode]::Create)
+    try {
+        $zip = New-Object System.IO.Compression.ZipArchive($fs, [System.IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($p in @(
+                @{ n='[Content_Types].xml';        t=$contentTypes },
+                @{ n='_rels/.rels';                 t=$relsRoot },
+                @{ n='xl/workbook.xml';             t=$workbook },
+                @{ n='xl/_rels/workbook.xml.rels';  t=$wbRels },
+                @{ n='xl/styles.xml';               t=$styles }
+            )) {
+                $e = $zip.CreateEntry($p.n)
+                $sw = New-Object System.IO.StreamWriter($e.Open(), $enc)
+                $sw.Write($p.t.Trim()); $sw.Flush(); $sw.Dispose()
+            }
+
+            $e  = $zip.CreateEntry('xl/worksheets/sheet1.xml')
+            $w  = New-Object System.IO.StreamWriter($e.Open(), $enc)
+            $w.Write('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>')
+            $w.Write('<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">')
+            $w.Write('<sheetViews><sheetView tabSelected="1" workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews>')
+            $w.Write('<sheetFormatPr defaultRowHeight="15"/>')
+            $w.Write('<sheetData>')
+
+            $w.Write('<row r="1">')
+            for ($j = 0; $j -lt $nCols; $j++) {
+                $ref = (Get-ColLetter $j) + '1'
+                $w.Write("<c r=""$ref"" s=""1"" t=""inlineStr""><is><t xml:space=""preserve"">$(ConvertTo-XmlText $cols[$j])</t></is></c>")
+            }
+            $w.Write('</row>')
+
+            $rn = 2
+            foreach ($r in $Rows) {
+                $sIdx = Get-StatusStyle $r.AuditStatus
+                $w.Write("<row r=""$rn"">")
+                for ($j = 0; $j -lt $nCols; $j++) {
+                    $col = $cols[$j]
+                    $ref = (Get-ColLetter $j) + $rn
+                    $val = $r.$col
+                    if ($numeric.ContainsKey($col) -and $null -ne $val -and "$val" -ne '') {
+                        $w.Write("<c r=""$ref"" s=""$sIdx""><v>$([int]$val)</v></c>")
+                    }
+                    elseif ($dateCol.ContainsKey($col) -and $val -is [datetime]) {
+                        $w.Write("<c r=""$ref"" s=""$sIdx"" t=""inlineStr""><is><t>$($val.ToString('yyyy-MM-dd HH:mm:ss'))</t></is></c>")
+                    }
+                    else {
+                        $txt = ConvertTo-XmlText ([string]$val)
+                        if ($txt -eq '') { $w.Write("<c r=""$ref"" s=""$sIdx""/>") }
+                        else { $w.Write("<c r=""$ref"" s=""$sIdx"" t=""inlineStr""><is><t xml:space=""preserve"">$txt</t></is></c>") }
+                    }
+                }
+                $w.Write('</row>')
+                $rn++
+            }
+
+            $w.Write('</sheetData>')
+            $w.Write("<autoFilter ref=""A1:$lastCol$lastRow""/>")
+            $w.Write('</worksheet>')
+            $w.Flush(); $w.Dispose()
+        }
+        finally { $zip.Dispose() }
+    }
+    finally { $fs.Dispose() }
+}
+
+function Export-CsvFallback {
+    param($Rows, $Path)
+    $lines = $Rows | Select-Object $script:Columns | ConvertTo-Csv -Delimiter ';' -NoTypeInformation
+    $content = "sep=;`r`n" + ($lines -join "`r`n")
+    [System.IO.File]::WriteAllText($Path, $content, (New-Object System.Text.UTF8Encoding($true)))  # UTF-8 BOM
+}
+
 function Export-Report {
     if ($sync.Results.Count -eq 0) { return }
     if ([string]::IsNullOrWhiteSpace($txtOutput.Text)) { return }
+    $path = $txtOutput.Text
+    $rows = @($sync.Results)
+    $lblStatus.Text = "Writing $([System.IO.Path]::GetFileName($path)) ..."
+    [System.Windows.Forms.Application]::DoEvents()
     try {
-        @($sync.Results) |
-            Select-Object $script:Columns |
-            Export-Csv -Path $txtOutput.Text -Delimiter ';' -NoTypeInformation -Encoding UTF8
-        $lblStatus.Text = "$($lblStatus.Text)  |  Saved: $($txtOutput.Text)"
+        if ($path.ToLowerInvariant().EndsWith('.xlsx')) { Export-AuditXlsx -Rows $rows -Path $path }
+        else { Export-CsvFallback -Rows $rows -Path $path }
+        $lblStatus.Text = "$($lblStatus.Text)  |  Saved: $path"
     }
     catch {
-        [System.Windows.Forms.MessageBox]::Show("Export failed:`n$($_.Exception.Message)", 'Export error', 'OK', 'Error') | Out-Null
+        try {
+            $csv = [System.IO.Path]::ChangeExtension($path, '.csv')
+            Export-CsvFallback -Rows $rows -Path $csv
+            [System.Windows.Forms.MessageBox]::Show("XLSX export failed - saved a CSV instead:`n$csv`n`n$($_.Exception.Message)", 'Export fallback', 'OK', 'Warning') | Out-Null
+            $lblStatus.Text = "Saved (CSV fallback): $csv"
+        }
+        catch {
+            [System.Windows.Forms.MessageBox]::Show("Export failed:`n$($_.Exception.Message)", 'Export error', 'OK', 'Error') | Out-Null
+        }
     }
 }
 
@@ -509,7 +668,7 @@ $btnInput.Add_Click({
         $txtInput.Text = $ofd.FileName
         if ([string]::IsNullOrWhiteSpace($txtOutput.Text)) {
             $dir = [System.IO.Path]::GetDirectoryName($ofd.FileName)
-            $txtOutput.Text = [System.IO.Path]::Combine($dir, 'AD_Account_Audit.csv')
+            $txtOutput.Text = [System.IO.Path]::Combine($dir, 'AD_Account_Audit.xlsx')
         }
     }
 })
@@ -517,8 +676,8 @@ $btnInput.Add_Click({
 $btnOutput.Add_Click({
     $sfd = New-Object System.Windows.Forms.SaveFileDialog
     $sfd.Title    = 'Choose where to save the CSV report'
-    $sfd.Filter   = 'CSV files (*.csv)|*.csv'
-    $sfd.FileName = 'AD_Account_Audit.csv'
+    $sfd.Filter   = 'Excel Workbook (*.xlsx)|*.xlsx|CSV (semicolon) (*.csv)|*.csv'
+    $sfd.FileName = 'AD_Account_Audit.xlsx'
     if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         $txtOutput.Text = $sfd.FileName
     }
