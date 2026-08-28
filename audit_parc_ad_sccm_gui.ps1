@@ -9,7 +9,7 @@
                  -> Description, dernier logon machine, OS, activation,
                     ancienneté (inactivite 90 / 160 jours), dernier utilisateur
                     (rapproche depuis SCCM quand disponible).
-      * SCCM   : TOUS les postes (Get-CMDevice) -> dernier utilisateur,
+      * SCCM   : TOUS les postes (Get-CMResource) -> dernier utilisateur,
                  derniere activite client, inactivite 90 / 160 jours.
       * Rapprochement AD/SCCM (double audit) : jointure par nom de machine,
                  presence AD seul / SCCM seul / les deux, divergences,
@@ -25,7 +25,7 @@
 
 .NOTES
     A lancer en STA : powershell.exe -STA -File .\audit_parc_ad_sccm_gui.ps1
-    Doit tourner dans une session ou Get-CMDevice est disponible
+    Doit tourner dans une session ou Get-CMResource est disponible
     (console Configuration Manager / lecteur de site charge) pour la partie SCCM.
     La partie AD ne necessite que le module ActiveDirectory : si SCCM est absent,
     l'outil fonctionne en mode AD seul (onglets SCCM / Rapprochement vides).
@@ -55,7 +55,9 @@ catch {
 }
 
 # SCCM : verification souple. Absent -> mode AD seul.
-$script:SccmAvailable = [bool](Get-Command Get-CMDevice -ErrorAction SilentlyContinue)
+# NB : on utilise Get-CMResource (et non Get-CMDevice) car c'est la commande
+# disponible/fonctionnelle dans la console de ce site.
+$script:SccmAvailable = [bool](Get-Command Get-CMResource -ErrorAction SilentlyContinue)
 
 # ==================================================================
 #  Configuration
@@ -157,6 +159,24 @@ $script:Spec = @{
 
 $script:Views = @{}   # rempli a la construction de l'UI : Kind -> objet vue
 
+# Largeurs de colonnes (px) pour un rendu propre - fini l'auto-dimensionnement anarchique
+$script:ColWidths = @{
+    name=140; machine=140; lastLogonUser=170; sccmLastUser=170; model=160; serialNumber=130
+    manufacturer=110; description=300; os=150; lastLogon=105; adLastLogon=105; pwdLastSet=105
+    lastActive=135; sccmLastActive=125; inactiveDays=100; adInactiveDays=105; sccmInactiveDays=115
+    enabled=70; inAD=70; inSCCM=78; clientStatus=95; resourceId=95; dn=280; presence=105
+    flag=210; status=160
+}
+# Colonne qui remplit l'espace restant (pas de fill pour SCCM -> largeurs fixes + scroll)
+$script:FillCol = @{ AD='description'; RECON='description'; SCCM='' }
+
+# Palette (couleurs de lignes = grille = export Excel)
+$script:PaletteRed    = [System.Drawing.Color]::FromArgb(250,205,205)  # obsolete
+$script:PaletteAmber  = [System.Drawing.Color]::FromArgb(255,238,180)  # a surveiller
+$script:PaletteGray   = [System.Drawing.Color]::FromArgb(224,224,224)  # desactive
+$script:PaletteBlue   = [System.Drawing.Color]::FromArgb(214,232,255)  # AD seul
+$script:PalettePurple = [System.Drawing.Color]::FromArgb(233,218,255)  # SCCM seul
+
 # ==================================================================
 #  Fonctions - utilitaires
 # ==================================================================
@@ -229,28 +249,42 @@ function Get-AdComputerObjects {
 }
 
 function Get-SccmDeviceObjects {
-    # Normalise Get-CMDevice en objets simples et defensifs.
-    # LastActiveTime peut etre nul selon la sante client -> repli LastClientCheckTime.
-    $devices = Get-CMDevice -ErrorAction Stop
-    foreach ($d in $devices) {
-        $la = Get-Prop $d 'LastActiveTime'
-        if (-not $la) { $la = Get-Prop $d 'LastClientCheckTime' }
-        if ($la -and ([datetime]$la) -eq [datetime]::MinValue) { $la = $null }
+    # Enumere les systemes via Get-CMResource -ResourceType System -Fast (SMS_R_System),
+    # la commande qui fonctionne dans cette console (Get-CMDevice ne renvoie rien ici).
+    # Derniere activite : on prend la date la plus recente parmi AgentTime (heartbeat /
+    # discovery), avec repli sur LastLogonTimestamp. Dernier utilisateur : LastLogonUserName.
+    $systems = Get-CMResource -ResourceType System -Fast -ErrorAction Stop
+    foreach ($d in $systems) {
+        $name = [string](Get-Prop $d 'Name')
+        if ([string]::IsNullOrWhiteSpace($name)) { continue }
 
-        $cas = Get-Prop $d 'ClientActiveStatus'
-        $client = switch ($cas) {
-            1       { 'Actif' }
-            0       { 'Inactif' }
-            default { if ((Get-Prop $d 'IsClient')) { 'Client' } else { 'Sans client' } }
+        # Date de derniere activite
+        $la = $null
+        $at = Get-Prop $d 'AgentTime'
+        if ($at) {
+            $dates = @($at | ForEach-Object { try { [datetime]$_ } catch {} } | Where-Object { $_ -and $_ -ne [datetime]::MinValue })
+            if ($dates.Count) { $la = ($dates | Sort-Object -Descending)[0] }
+        }
+        if (-not $la) {
+            $llt = Get-Prop $d 'LastLogonTimestamp'
+            if ($llt) { try { $t = [datetime]$llt; if ($t -ne [datetime]::MinValue) { $la = $t } } catch {} }
         }
 
+        # Etat client
+        $active = Get-Prop $d 'Active'
+        $client = Get-Prop $d 'Client'
+        $clientStatus =
+            if     ($client -eq 1 -and $active -eq 1) { 'Actif' }
+            elseif ($client -eq 1)                    { 'Inactif' }
+            else                                      { 'Sans client' }
+
         [pscustomobject]@{
-            Name          = [string](Get-Prop $d 'Name')
-            ResourceID    = [string](Get-Prop $d 'ResourceID')
-            LastLogonUser = [string](Get-Prop $d 'LastLogonUser')
-            LastActive    = if ($la) { [datetime]$la } else { $null }
-            ClientStatus  = $client
-            OS            = [string](Get-Prop $d 'DeviceOS')
+            Name          = $name
+            ResourceID    = [string](Get-Prop $d 'ResourceId')
+            LastLogonUser = [string](Get-Prop $d 'LastLogonUserName')
+            LastActive    = $la
+            ClientStatus  = $clientStatus
+            OS            = [string](Get-Prop $d 'OperatingSystemNameandVersion')
             Manufacturer  = ''
             Model         = ''
             SerialNumber  = ''
@@ -502,11 +536,11 @@ function Update-ViewColors {
     param($View)
     $low  = $script:LowDays
     $high = $script:HighDays
-    $red   = [System.Drawing.Color]::FromArgb(255,224,224)
-    $amber = [System.Drawing.Color]::FromArgb(255,245,204)
-    $gray  = [System.Drawing.Color]::FromArgb(230,230,230)
-    $blue  = [System.Drawing.Color]::FromArgb(224,238,255)
-    $purple= [System.Drawing.Color]::FromArgb(240,226,255)
+    $red   = $script:PaletteRed
+    $amber = $script:PaletteAmber
+    $gray  = $script:PaletteGray
+    $blue  = $script:PaletteBlue
+    $purple= $script:PalettePurple
 
     foreach ($row in $View.Grid.Rows) {
         if ($row.IsNewRow) { continue }
@@ -835,10 +869,10 @@ function Get-GridExportRecords {
 function Get-ReconColorFromFlag {
     param([string]$Flag)
     switch ($Flag) {
-        'Obsolete (AD+SCCM)'      { return [System.Drawing.Color]::FromArgb(255,224,224) }
-        'A verifier'              { return [System.Drawing.Color]::FromArgb(255,245,204) }
-        'Present AD, absent SCCM' { return [System.Drawing.Color]::FromArgb(224,238,255) }
-        'Present SCCM, absent AD' { return [System.Drawing.Color]::FromArgb(240,226,255) }
+        'Obsolete (AD+SCCM)'      { return $script:PaletteRed }
+        'A verifier'              { return $script:PaletteAmber }
+        'Present AD, absent SCCM' { return $script:PaletteBlue }
+        'Present SCCM, absent AD' { return $script:PalettePurple }
         default                   { return $null }
     }
 }
@@ -1128,25 +1162,52 @@ function New-AuditView {
     $grid.AllowUserToOrderColumns   = $true
     $grid.AllowUserToResizeColumns  = $true
     $grid.AllowUserToResizeRows     = $false
-    $grid.AutoSizeColumnsMode       = 'AllCells'
+    $grid.AutoSizeColumnsMode       = 'None'     # largeurs maitrisees (voir DataBindingComplete)
     $grid.SelectionMode             = 'FullRowSelect'
     $grid.MultiSelect               = $true
     $grid.RowHeadersVisible         = $false
-    $grid.ColumnHeadersHeightSizeMode = 'AutoSize'
+    $grid.ColumnHeadersHeightSizeMode = 'DisableResizing'
+    $grid.ColumnHeadersHeight       = 32
     $grid.ClipboardCopyMode         = 'EnableWithoutHeaderText'
     $grid.BorderStyle               = 'None'
+    $grid.EnableHeadersVisualStyles = $false
     $grid.BackgroundColor           = [System.Drawing.Color]::White
+    $grid.GridColor                 = [System.Drawing.Color]::FromArgb(226,230,236)
+    $grid.CellBorderStyle           = 'SingleHorizontal'
     $grid.Font                      = New-Object System.Drawing.Font('Segoe UI',9)
-    $grid.RowTemplate.Height        = 24
-    $grid.AlternatingRowsDefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(247,249,252)
-    $grid.ColumnHeadersDefaultCellStyle.Font = New-Object System.Drawing.Font('Segoe UI',9,[System.Drawing.FontStyle]::Bold)
+    $grid.RowTemplate.Height        = 26
+    $grid.AlternatingRowsDefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(246,248,251)
+
+    # Entete stylee (bleu fonce, texte blanc, centre)
+    $grid.ColumnHeadersDefaultCellStyle.BackColor  = [System.Drawing.Color]::FromArgb(31,78,121)
+    $grid.ColumnHeadersDefaultCellStyle.ForeColor  = [System.Drawing.Color]::White
+    $grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::FromArgb(31,78,121)
+    $grid.ColumnHeadersDefaultCellStyle.Font       = New-Object System.Drawing.Font('Segoe UI',9,[System.Drawing.FontStyle]::Bold)
+    $grid.ColumnHeadersDefaultCellStyle.Alignment  = 'MiddleLeft'
+    $grid.ColumnHeadersDefaultCellStyle.Padding    = New-Object System.Windows.Forms.Padding(6,0,0,0)
+
+    # Cellules : marge interne + selection lisible
+    $grid.DefaultCellStyle.Padding            = New-Object System.Windows.Forms.Padding(6,0,4,0)
+    $grid.DefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::FromArgb(51,122,183)
+    $grid.DefaultCellStyle.SelectionForeColor = [System.Drawing.Color]::White
 
     $headers  = $ViewSpec.Headers
     $dateCols = $ViewSpec.DateCols
+    $widths   = $script:ColWidths
+    $fillCol  = $script:FillCol[$ViewSpec.Kind]
+    $numCols  = @($ViewSpec.DateCols) + @('inactiveDays','adInactiveDays','sccmInactiveDays')
     $grid.Add_DataBindingComplete({
         foreach ($c in $grid.Columns) {
             if ($headers.ContainsKey($c.Name)) { $c.HeaderText = $headers[$c.Name] }
             if ($dateCols -contains $c.Name)   { $c.DefaultCellStyle.Format = 'yyyy-MM-dd' }
+            if ($widths.ContainsKey($c.Name))  { $c.Width = $widths[$c.Name] } else { $c.Width = 110 }
+            # Nombres/dates alignes a droite pour la lisibilite
+            if ($numCols -contains $c.Name) { $c.DefaultCellStyle.Alignment = 'MiddleRight' }
+        }
+        if ($fillCol -and $grid.Columns.Contains($fillCol)) {
+            $grid.Columns[$fillCol].AutoSizeMode = 'Fill'
+            $grid.Columns[$fillCol].FillWeight   = 100
+            $grid.Columns[$fillCol].MinimumWidth = 220
         }
         if ($grid.Columns.Count -gt 0) { $grid.Columns[0].Frozen = $true }
     }.GetNewClosure())
@@ -1274,7 +1335,7 @@ $lblSccm.AutoSize = $true
 $lblSccm.Font = New-Object System.Drawing.Font('Segoe UI',9,[System.Drawing.FontStyle]::Bold)
 $lblSccm.Text = if ($script:SccmAvailable) { "SCCM : disponible" } else { "SCCM : indisponible (AD seul)" }
 $lblSccm.ForeColor = if ($script:SccmAvailable) { [System.Drawing.Color]::ForestGreen } else { [System.Drawing.Color]::Firebrick }
-$sccmTip = if ($script:SccmAvailable) { "Le parc SCCM complet est interroge au lancement de l'audit.`r`nPositionne-toi sur le lecteur du site (PS <CODE>:\) pour que Get-CMDevice renvoie des postes." } else { "Get-CMDevice introuvable : onglets SCCM et Rapprochement vides." }
+$sccmTip = if ($script:SccmAvailable) { "Le parc SCCM complet est interroge via Get-CMResource au lancement.`r`nPositionne-toi sur le lecteur du site (PS <CODE>:\) si aucun poste ne remonte." } else { "Get-CMResource introuvable : onglets SCCM et Rapprochement vides." }
 $ttMain.SetToolTip($lblSccm, $sccmTip)
 
 $btnRun = New-Object System.Windows.Forms.Button
@@ -1288,6 +1349,18 @@ $btnAsset.Text    = "Export gestion de parc..."
 $btnAsset.Size    = New-Object System.Drawing.Size(180,28)
 $btnAsset.Anchor  = 'Top,Right'
 $btnAsset.Enabled = $false
+
+# Style des boutons principaux + barre haute
+$accentColor = [System.Drawing.Color]::FromArgb(31,78,121)
+foreach ($b in @($btnOU,$btnRun,$btnAsset)) {
+    $b.FlatStyle = 'Flat'
+    $b.FlatAppearance.BorderSize = 0
+    $b.BackColor = $accentColor
+    $b.ForeColor = [System.Drawing.Color]::White
+    $b.Font      = New-Object System.Drawing.Font('Segoe UI',9,[System.Drawing.FontStyle]::Bold)
+    $b.Cursor    = [System.Windows.Forms.Cursors]::Hand
+}
+$Top.BackColor = [System.Drawing.Color]::FromArgb(238,241,245)
 
 $Top.Controls.AddRange(@($btnOU,$lblOU,$lblSeuilBas,$numLow,$lblSeuilHaut,$numHigh,$chkHardware,$lblSccm,$btnRun,$btnAsset))
 
@@ -1320,9 +1393,48 @@ $Progress.Size = New-Object System.Drawing.Size(240,16)
 [void]$Status.Items.Add($script:lblStatus)
 [void]$Status.Items.Add($Progress)
 
+# --- Legende des couleurs ---
+$Legend = New-Object System.Windows.Forms.Panel
+$Legend.Height    = 30
+$Legend.Dock      = 'Bottom'
+$Legend.BackColor = [System.Drawing.Color]::FromArgb(238,241,245)
+
+$lblLegendTitle = New-Object System.Windows.Forms.Label
+$lblLegendTitle.Text     = "Legende :"
+$lblLegendTitle.Font     = New-Object System.Drawing.Font('Segoe UI',9,[System.Drawing.FontStyle]::Bold)
+$lblLegendTitle.AutoSize = $true
+$lblLegendTitle.Location = New-Object System.Drawing.Point(10,7)
+$Legend.Controls.Add($lblLegendTitle)
+
+$legendItems = @(
+    @{ Color = $script:PaletteRed;    Text = 'Obsolete (>= seuil haut)' },
+    @{ Color = $script:PaletteAmber;  Text = 'A surveiller (>= seuil bas)' },
+    @{ Color = $script:PaletteGray;   Text = 'Desactive (AD)' },
+    @{ Color = $script:PaletteBlue;   Text = 'AD seul' },
+    @{ Color = $script:PalettePurple; Text = 'SCCM seul' }
+)
+$lx = 90
+foreach ($item in $legendItems) {
+    $sw = New-Object System.Windows.Forms.Panel
+    $sw.Size      = New-Object System.Drawing.Size(16,16)
+    $sw.Location  = New-Object System.Drawing.Point($lx,6)
+    $sw.BackColor = $item.Color
+    $sw.BorderStyle = 'FixedSingle'
+    $Legend.Controls.Add($sw)
+
+    $lb = New-Object System.Windows.Forms.Label
+    $lb.Text     = $item.Text
+    $lb.AutoSize = $true
+    $lb.Location = New-Object System.Drawing.Point(($lx+20),8)
+    $Legend.Controls.Add($lb)
+
+    $lx += 22 + ($item.Text.Length * 7) + 22
+}
+
 # Ordre d'ajout : Fill d'abord, puis Top / Bottom au premier plan
 $Form.Controls.Add($Tabs)
 $Form.Controls.Add($Top);    $Top.BringToFront()
+$Form.Controls.Add($Legend); $Legend.BringToFront()
 $Form.Controls.Add($Status); $Status.BringToFront()
 
 # ==================================================================
