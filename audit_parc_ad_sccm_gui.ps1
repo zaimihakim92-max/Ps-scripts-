@@ -736,8 +736,9 @@ function Show-ExportDialog {
 #  Fonctions - export Excel colore (COM) + repli CSV
 # ==================================================================
 function ConvertTo-OleColor {
+    # Excel attend un entier BGR = R + G*256 + B*65536 (identique a la fonction RGB() VBA)
     param([System.Drawing.Color]$Color)
-    return [int]$Color.R + ([int]$Color.G -shl 8) + ([int]$Color.B -shl 16)
+    return [int]([int]$Color.R + ([int]$Color.G * 256) + ([int]$Color.B * 65536))
 }
 
 function Export-RecordsToExcel {
@@ -799,9 +800,11 @@ function Export-RecordsToExcel {
         # Coloration des lignes (reprend exactement les couleurs de la grille)
         for ($r = 0; $r -lt $rowCount; $r++) {
             $col = $recs[$r].Color
-            if ($col -and -not $col.IsEmpty) {
-                $ole = ConvertTo-OleColor $col
-                $ws.Range($ws.Cells.Item($r+2,1), $ws.Cells.Item($r+2,$colCount)).Interior.Color = $ole
+            if ($null -ne $col -and ($col -is [System.Drawing.Color]) -and -not $col.IsEmpty) {
+                try {
+                    $ole = ConvertTo-OleColor $col
+                    $ws.Range($ws.Cells.Item($r+2,1), $ws.Cells.Item($r+2,$colCount)).Interior.Color = $ole
+                } catch {}
             }
         }
 
@@ -860,7 +863,7 @@ function Get-GridExportRecords {
         $bg = $row.DefaultCellStyle.BackColor
         [pscustomobject]@{
             Cells = @($cells)
-            Color = if ($bg -and -not $bg.IsEmpty) { $bg } else { $null }
+            Color = if (-not $bg.IsEmpty) { $bg } else { $null }
         }
     }
     return @{ Headers = @($headers); Records = @($records) }
@@ -1166,11 +1169,12 @@ function New-AuditView {
     $grid.SelectionMode             = 'FullRowSelect'
     $grid.MultiSelect               = $true
     $grid.RowHeadersVisible         = $false
+    $grid.ColumnHeadersVisible      = $true
     $grid.ColumnHeadersHeightSizeMode = 'DisableResizing'
-    $grid.ColumnHeadersHeight       = 32
+    $grid.ColumnHeadersHeight       = 34
     $grid.ClipboardCopyMode         = 'EnableWithoutHeaderText'
     $grid.BorderStyle               = 'None'
-    $grid.EnableHeadersVisualStyles = $false
+    $grid.EnableHeadersVisualStyles = $true    # en-tete thematise = texte toujours lisible
     $grid.BackgroundColor           = [System.Drawing.Color]::White
     $grid.GridColor                 = [System.Drawing.Color]::FromArgb(226,230,236)
     $grid.CellBorderStyle           = 'SingleHorizontal'
@@ -1178,13 +1182,10 @@ function New-AuditView {
     $grid.RowTemplate.Height        = 26
     $grid.AlternatingRowsDefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(246,248,251)
 
-    # Entete stylee (bleu fonce, texte blanc, centre)
-    $grid.ColumnHeadersDefaultCellStyle.BackColor  = [System.Drawing.Color]::FromArgb(31,78,121)
-    $grid.ColumnHeadersDefaultCellStyle.ForeColor  = [System.Drawing.Color]::White
-    $grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::FromArgb(31,78,121)
-    $grid.ColumnHeadersDefaultCellStyle.Font       = New-Object System.Drawing.Font('Segoe UI',9,[System.Drawing.FontStyle]::Bold)
-    $grid.ColumnHeadersDefaultCellStyle.Alignment  = 'MiddleLeft'
-    $grid.ColumnHeadersDefaultCellStyle.Padding    = New-Object System.Windows.Forms.Padding(6,0,0,0)
+    # En-tete : gras + un peu d'air (couleurs laissees au theme -> lisibilite garantie)
+    $grid.ColumnHeadersDefaultCellStyle.Font      = New-Object System.Drawing.Font('Segoe UI',9,[System.Drawing.FontStyle]::Bold)
+    $grid.ColumnHeadersDefaultCellStyle.Alignment = 'MiddleLeft'
+    $grid.ColumnHeadersDefaultCellStyle.Padding   = New-Object System.Windows.Forms.Padding(6,0,0,0)
 
     # Cellules : marge interne + selection lisible
     $grid.DefaultCellStyle.Padding            = New-Object System.Windows.Forms.Padding(6,0,4,0)
