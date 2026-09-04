@@ -1,47 +1,65 @@
-﻿<#
-.SYNOPSIS
-    Mail-Campaign-Tool - Outil de campagne mailing (WinForms + Exchange / SMTP)
-
-.DESCRIPTION
-    Interface graphique complète pour générer et envoyer des mails en masse :
-      1. Destinataires  : import bulk TXT/CSV (une adresse par ligne), saisie manuelle,
-                          nettoyage, dédoublonnage, validation, export.
-      2. Serveur SMTP   : Exchange / relais SMTP, avec ou sans authentification,
-                          SSL/TLS, test de connexion, mail de test.
-      3. Éditeur        : éditeur HTML WYSIWYG complet (gras, italique, couleurs, polices,
-                          titres, listes, alignement, liens, tableaux, images par chemin
-                          ou URL, blocs Info/Attention/Succès/Code, variables, modèles
-                          "Procédure", "Information", "Maintenance", "Sécurité"),
-                          vue source HTML, pièces jointes, brouillons.
-      4. Signature      : éditeur de signature avec images, sauvegardée dans %APPDATA%.
-      5. Envoi          : mode "1 mail par destinataire (personnalisé)" ou "Cci par lots",
-                          délai entre envois, simulation (dry-run), journal coloré,
-                          export CSV des résultats.
-
-    Les images locales (chemin) sont automatiquement embarquées dans le mail (Content-ID),
-    donc visibles dans Outlook sans pièce jointe apparente.
-
-    Variables utilisables dans l'objet et le corps :
-        {{EMAIL}} {{PRENOM}} {{NOM}} {{NOMCOMPLET}} {{DATE}} {{HEURE}}
-    (PRENOM / NOM sont déduits de la partie locale de l'adresse : prenom.nom@domaine.fr)
-
-    Raccourcis clavier dans l'éditeur : Ctrl+B / Ctrl+I / Ctrl+U / Ctrl+Z / Ctrl+Y,
-    Ctrl+C / Ctrl+V (le collage depuis Word/Outlook conserve la mise en forme).
-
-.NOTES
-    Auteur   : Hakim
-    Version  : 1.0
-    Prérequis: Windows PowerShell 5.1, .NET Framework 4.x, Windows (WebBrowser/IE engine)
-    Lancement: powershell.exe -STA -ExecutionPolicy Bypass -File .\Mail-Campaign-Tool.ps1
-               (le script se relance automatiquement en STA si nécessaire)
-    Fichiers : %APPDATA%\Mail-Campaign-Tool\config.json     (config, sans mot de passe)
-               %APPDATA%\Mail-Campaign-Tool\signature.html  (signature)
-               %APPDATA%\Mail-Campaign-Tool\logs\*.log      (journaux)
-#>
+# ============================================================================
+# .SYNOPSIS
+#     Mail-Campaign-Tool - Outil de campagne mailing (WinForms + Exchange / SMTP)
+#
+# .DESCRIPTION
+#     Interface graphique complète pour générer et envoyer des mails en masse :
+#       1. Destinataires  : import bulk TXT/CSV (une adresse par ligne), saisie manuelle,
+#                           nettoyage, dédoublonnage, validation, export.
+#       2. Serveur SMTP   : Exchange / relais SMTP, avec ou sans authentification,
+#                           SSL/TLS, test de connexion, mail de test.
+#       3. Éditeur        : éditeur HTML WYSIWYG complet (gras, italique, couleurs, polices,
+#                           titres, listes, alignement, liens, tableaux, images par chemin
+#                           ou URL, blocs Info/Attention/Succès/Code, variables, modèles
+#                           "Procédure", "Information", "Maintenance", "Sécurité"),
+#                           vue source HTML, pièces jointes, brouillons.
+#       4. Signature      : éditeur de signature avec images, sauvegardée dans %APPDATA%.
+#       5. Envoi          : mode "1 mail par destinataire (personnalisé)" ou "Cci par lots",
+#                           délai entre envois, simulation (dry-run), journal coloré,
+#                           export CSV des résultats.
+#
+#     Les images locales (chemin) sont automatiquement embarquées dans le mail (Content-ID),
+#     donc visibles dans Outlook sans pièce jointe apparente.
+#
+#     Variables utilisables dans l'objet et le corps :
+#         {{EMAIL}} {{PRENOM}} {{NOM}} {{NOMCOMPLET}} {{DATE}} {{HEURE}}
+#     (PRENOM / NOM sont déduits de la partie locale de l'adresse : prenom.nom@domaine.fr)
+#
+#     Raccourcis clavier dans l'éditeur : Ctrl+B / Ctrl+I / Ctrl+U / Ctrl+Z / Ctrl+Y,
+#     Ctrl+C / Ctrl+V (le collage depuis Word/Outlook conserve la mise en forme).
+#
+# .NOTES
+#     Auteur   : Hakim
+#     Version  : 1.0
+#     Prérequis: Windows PowerShell 5.1, .NET Framework 4.x, Windows (WebBrowser/IE engine)
+#     Lancement: clic droit > Exécuter avec PowerShell, ou depuis n'importe quelle console :
+#                .\Mail-Campaign-Tool.ps1   (se relance seul en Windows PowerShell 5.1 -STA)
+#     Fichiers : %APPDATA%\Mail-Campaign-Tool\config.json     (config, sans mot de passe)
+#                %APPDATA%\Mail-Campaign-Tool\signature.html  (signature)
+#                %APPDATA%\Mail-Campaign-Tool\logs\*.log      (journaux)
+# ============================================================================
 
 #region ================= INITIALISATION =================
-if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
-    Start-Process powershell.exe -ArgumentList "-STA -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+# --- Auto-réparation de l'encodage du fichier (BOM manquant / BOM en double après transfert) ---
+function Repair-ScriptEncoding {
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($PSCommandPath)
+        $bomCount = 0; $i = 0
+        while ($i + 2 -lt $bytes.Length -and $bytes[$i] -eq 0xEF -and $bytes[$i+1] -eq 0xBB -and $bytes[$i+2] -eq 0xBF) { $bomCount++; $i += 3 }
+        $mojibake = ('é'.Length -ne 1)   # lu en ANSI par Windows PowerShell => accents cassés
+        if ($bomCount -ne 1 -or $mojibake) {
+            $text = [System.Text.Encoding]::UTF8.GetString($bytes, $i, $bytes.Length - $i)
+            [System.IO.File]::WriteAllText($PSCommandPath, $text, (New-Object System.Text.UTF8Encoding($true)))
+            return $true
+        }
+    } catch { }
+    return $false
+}
+$needRestart = Repair-ScriptEncoding
+# WinForms + WebBrowser : on impose Windows PowerShell 5.1 en mode STA (le plus fiable)
+if ($needRestart -or $PSVersionTable.PSVersion.Major -ge 6 -or [Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
+    $ps51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    Start-Process -FilePath $ps51 -ArgumentList "-STA -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
     exit
 }
 
@@ -114,8 +132,8 @@ function New-Ctl {
 
 function Add-Field {
     param($Parent, [string]$Label, [int]$X, [int]$Y, [int]$Width = 260, [string]$Default = '', [switch]$Password, [int]$LabelWidth = 150)
-    New-Ctl 'Label' @{ Text = $Label; Location = @($X, $Y + 3); AutoSize = $true } $Parent | Out-Null
-    $t = New-Ctl 'TextBox' @{ Location = @($X + $LabelWidth, $Y); Size = @($Width, 23); Text = $Default } $Parent
+    New-Ctl 'Label' @{ Text = $Label; Location = @($X, ($Y + 3)); AutoSize = $true } $Parent | Out-Null
+    $t = New-Ctl 'TextBox' @{ Location = @(($X + $LabelWidth), $Y); Size = @($Width, 23); Text = $Default } $Parent
     if ($Password) { $t.UseSystemPasswordChar = $true }
     $t
 }
@@ -687,6 +705,7 @@ function Initialize-Editor {
     }
     try {
         $Browser.Document.Body.SetAttribute('contentEditable', 'true')
+        try { $Browser.Document.DomDocument.designMode = 'On' } catch { }
         if ($InitialHtml) { $Browser.Document.Body.InnerHtml = $InitialHtml }
     } catch { Write-Log "Initialisation éditeur : $($_.Exception.Message)" 'ERROR' }
 }
