@@ -83,7 +83,32 @@
   .ph{border:2px dashed #C7D0DB;color:#7A8797;padding:24px;text-align:center;font-size:12px}
   .srcField{display:block;width:100%;min-height:64px;font:12px/1.5 Consolas,"Cascadia Mono",monospace;color:#1B2A41;background:#FBFCFE;border:1px dashed #9FB3C8;border-radius:4px;padding:6px 8px;resize:vertical;white-space:pre-wrap}
   .rawView{outline:1px dotted #9FB3C8;outline-offset:2px}
-  #btnHtmlMode.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .modes{display:inline-flex;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .modes button{border:0;border-radius:0;padding:4px 10px;background:#fff}
+  .modes button+button{border-left:1px solid var(--line)}
+  .modes button.on{background:var(--accent);color:#fff}
+  .codeWrap{display:grid;grid-template-rows:1fr 1fr;height:100%;gap:0}
+  .codeWrap textarea{width:100%;height:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;font:12.5px/1.5 Consolas,"Cascadia Mono",monospace;padding:12px;resize:none;white-space:pre;overflow:auto;background:#FBFCFE;color:#1B2A41}
+  .codeWrap iframe{width:100%;height:100%;border:0;background:#fff}
+  body.codemode #canvasWrap{padding:0} body.codemode #canvas{box-shadow:none;height:100%;width:100%!important}
+  body.codemode #palette button{opacity:.4;pointer-events:none}
+  #convModal .box{width:min(1100px,96vw);height:min(90vh,900px)}
+  #convModal .body{flex:1;display:grid;grid-template-columns:1fr 1.2fr;gap:14px;padding:14px;min-height:0}
+  #convModal textarea{width:100%;height:100%;font:12px/1.5 Consolas,"Cascadia Mono",monospace;resize:none;white-space:pre;overflow:auto}
+  #convModal .segs{overflow:auto;border:1px solid var(--line);border-radius:var(--radius);min-height:0}
+  #convModal .seg{display:grid;grid-template-columns:22px 130px 1fr;gap:8px;align-items:center;padding:6px 8px;border-bottom:1px solid var(--line2)}
+  #convModal .seg .pv{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #convModal .seg.off{opacity:.45}
+  #convModal .side{display:flex;flex-direction:column;gap:8px;min-height:0}
+  #convModal .foot{display:flex;gap:8px;align-items:center;padding:10px 14px;border-top:1px solid var(--line);flex-wrap:wrap}
+  #convModal .foot .spacer{flex:1}
+  #chooseModal .box{width:min(560px,94vw);height:auto;padding:0}
+  #chooseModal .body{padding:16px 18px}
+  #chooseModal .body p{margin:0 0 12px;color:var(--muted)}
+  #chooseModal .opts{display:flex;flex-direction:column;gap:6px}
+  #chooseModal .opts button{text-align:left;padding:10px 12px}
+  #chooseModal .opts button b{display:block}
+  #chooseModal .opts button span{color:var(--muted);font-size:12px}
   #canvasEmpty{text-align:center;color:var(--muted);padding:60px 20px}
   #canvasEmpty b{display:block;font-size:15px;color:var(--ink);margin-bottom:6px}
 
@@ -140,6 +165,8 @@
     <select id="selTemplate" title="Partir d'un modèle prêt"><option value="">Modèles prêts…</option></select>
     <button id="btnUndo" title="Annuler (Ctrl+Z hors zone de texte)">↶ Annuler</button>
     <button id="btnImport">Ouvrir (.json)</button>
+    <button id="btnImportHtml" title="Importer un fichier HTML existant (export de cet outil, mail enregistré depuis Outlook, page web…)">Importer HTML</button>
+    <button id="btnConvert" title="Convertisseur : transforme n'importe quel HTML en blocs exploitables, avec révision">Convertisseur</button>
     <button id="btnExportJson">Enregistrer (.json)</button>
     <button id="btnPreview">Aperçu</button>
     <button id="btnCopyOutlook" title="Copie le rendu pour le coller directement dans un nouveau message Outlook">Copier pour Outlook</button>
@@ -162,7 +189,12 @@
     <div class="section">
       <h2>Réglages généraux</h2>
       <label>Largeur du mail (px)</label>
-      <input type="number" id="sWidth" min="480" max="800" step="10">
+      <div class="row"><input type="number" id="sWidth" min="320" max="1400" step="10"><button class="sm" id="sW600" title="Largeur standard">600</button><button class="sm" id="sW800" title="Large">800</button></div>
+      <div class="row" style="margin-top:6px"><input type="checkbox" id="sFluid" style="width:auto;flex:0"><span style="color:var(--muted);font-size:12px">Largeur fluide (s'adapte à la fenêtre, plafonnée à la largeur ci-dessus)</span></div>
+      <label>Marges intérieures des blocs (px)</label>
+      <input type="number" id="sPad" min="0" max="80" step="2">
+      <label>Langue du contenu (libellés Information / Attention, légendes, modèles prêts)</label>
+      <select id="sLang"><option value="fr">Français</option><option value="en">English</option></select>
       <label>Police</label>
       <select id="sFont">
         <option>Calibri</option><option>Arial</option><option>Segoe UI</option><option>Verdana</option><option>Tahoma</option><option>Georgia</option><option>Times New Roman</option>
@@ -175,6 +207,9 @@
       <div class="row"><input type="color" id="sBg"><input type="text" id="sBgTxt"></div>
       <label>Pré-en-tête (texte affiché dans la liste des messages)</label>
       <input type="text" id="sPreheader" placeholder="Résumé en une ligne, facultatif">
+      <label>CSS personnalisé (inséré dans &lt;head&gt;, facultatif)</label>
+      <textarea id="sCss" rows="3" placeholder="ex. a { color:#0E7C86; }" spellcheck="false"></textarea>
+      <div class="row" style="margin-top:8px"><input type="checkbox" id="sMeta" style="width:auto;flex:0"><span style="color:var(--muted);font-size:12px">Inclure les données du modèle dans le .html téléchargé (réimportable avec ses blocs)</span></div>
     </div>
   </aside>
 
@@ -201,8 +236,8 @@
       </select>
       <button data-cmd="removeFormat" title="Effacer la mise en forme">Effacer</button>
       <span class="sep"></span>
-      <button id="btnHtmlMode" title="Basculer chaque zone de texte en code HTML">Mode HTML</button>
-      <span class="hint">Cliquez dans un texte pour l'éditer · Ctrl+V colle avec la mise en forme, Ctrl+Maj+V en texte brut · une capture d'écran collée crée un bloc Capture</span>
+      <div class="modes" id="modes"><button data-mode="visual" class="on" title="Édition visuelle bloc par bloc">Visuel</button><button data-mode="html" title="Code HTML de chaque zone de texte">HTML par bloc</button><button data-mode="code" title="Code source complet du mail, éditable librement">Code complet</button></div>
+      <span class="hint">Ctrl+V colle avec la mise en forme, Ctrl+Maj+V en texte brut · une capture d'écran collée crée un bloc Capture</span>
     </div>
     <div id="canvasWrap"><div id="canvas"></div></div>
   </section>
@@ -222,7 +257,7 @@
         <div class="kv" id="htmlInfo"></div>
         <textarea id="htmlOut" readonly spellcheck="false"></textarea>
         <div class="btnrow"><button id="btnCopyHtml2">Copier</button><button id="btnDownload2" class="primary">Télécharger .html</button></div>
-        <div class="note">Les images référencées par un chemin local (C:\…, \\serveur\…) sont embarquées automatiquement par Mail-Campaign-Tool.ps1 à l'envoi.</div>
+        <div class="note">Les images en chemin local (C:\…, \\serveur\…) ou incorporées (base64) sont embarquées automatiquement par Mail-Campaign-Tool.ps1 à l'envoi.</div>
       </div>
     </div>
     <div class="tabpane" id="lib">
@@ -250,7 +285,36 @@
     <div class="frameWrap"><iframe id="previewFrame" title="Aperçu du mail" style="width:100%"></iframe></div>
   </div>
 </div>
+<div class="modal" id="convModal">
+  <div class="box">
+    <div class="bar"><b>Convertisseur en blocs</b><span class="kv">transforme un HTML quelconque en modèle exploitable, bloc par bloc</span><span class="spacer"></span><button class="sm" id="convClose">Fermer</button></div>
+    <div class="body">
+      <div class="side">
+        <div class="row"><button class="sm" id="convFile">Importer un fichier HTML…</button><button class="sm" id="convFromCode">Reprendre le mail courant</button><button class="sm primary" id="convAnalyze">Analyser →</button></div>
+        <textarea id="convSrc" spellcheck="false" placeholder="Collez ici le code HTML (ou le contenu copié depuis Outlook / une page web), puis cliquez sur Analyser."></textarea>
+      </div>
+      <div class="side">
+        <div class="kv" id="convInfo">Aucune analyse pour l'instant.</div>
+        <div class="segs" id="convSegs"></div>
+        <div class="row" style="flex:0 0 auto"><label style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" id="convStrip" checked style="width:auto"> Adopter les couleurs et polices du modèle (retire les styles collés)</label></div>
+        <div class="row" style="flex:0 0 auto"><label style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" id="convSettings" checked style="width:auto"> Reprendre largeur / police / fond détectés</label></div>
+      </div>
+    </div>
+    <div class="foot">
+      <span class="kv" id="convCount"></span><span class="spacer"></span>
+      <button id="convAppend">Ajouter à la suite du mail</button>
+      <button id="convReplace" class="primary">Remplacer le mail par ces blocs</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="chooseModal">
+  <div class="box">
+    <div class="bar"><b>Choix</b><span class="spacer"></span><button class="sm close">Fermer</button></div>
+    <div class="body"><p></p><div class="opts"></div></div>
+  </div>
+</div>
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
+<input type="file" id="fileHtml" accept=".html,.htm,.mht,text/html" hidden>
 <input type="file" id="fileImg" accept="image/*" hidden>
 <div id="toast"></div>
 
@@ -263,6 +327,8 @@ const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 const uid = () => 'b' + Math.random().toString(36).slice(2, 9);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const b64enc = str => btoa(unescape(encodeURIComponent(str)));
+const b64dec = b => decodeURIComponent(escape(atob(b)));
 const stripTags = h => { const d = document.createElement('div'); d.innerHTML = h || ''; return d.textContent || ''; };
 const clone = o => JSON.parse(JSON.stringify(o));
 const getPath = (o, p) => p.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
@@ -271,7 +337,7 @@ const setPath = (o, p, v) => { const ks = p.split('.'); let a = o; for (let i = 
 /* ---------------------------------------------------------------- État */
 const SAFE_FONTS = ['Calibri','Arial','Segoe UI','Verdana','Tahoma','Georgia','Times New Roman','Helvetica','Trebuchet MS','Courier New'];
 function defaultDoc() {
-  return { name: 'Nouveau modèle', settings: { width: 600, font: 'Calibri', color: '#1F4E79', text: '#333333', bg: '#F2F2F2', preheader: '' }, blocks: [] };
+  return { name: 'Nouveau modèle', mode: 'blocks', codeHtml: '', settings: { width: 600, fluid: false, pad: 28, lang: 'fr', font: 'Calibri', color: '#1F4E79', text: '#333333', bg: '#F2F2F2', preheader: '', customCss: '', meta: true }, blocks: [] };
 }
 let doc = defaultDoc();
 let selectedId = null;
@@ -282,27 +348,42 @@ let savedRange = null;
 
 /* ------------------------------------------------------- Définition blocs */
 const CALLOUT = {
-  info: { label: 'Information', icon: '&#8505;', border: '#2E75B6', bg: '#EAF2FB' },
-  warn: { label: 'Attention',   icon: '&#9888;', border: '#E67E22', bg: '#FDF2E9' },
-  ok:   { label: 'Succès',      icon: '&#10004;', border: '#2E8B57', bg: '#EAF7EE' },
-  err:  { label: 'Erreur',      icon: '&#10006;', border: '#C00000', bg: '#FBEAEA' }
+  info: { icon: '&#8505;', border: '#2E75B6', bg: '#EAF2FB' },
+  warn: { icon: '&#9888;', border: '#E67E22', bg: '#FDF2E9' },
+  ok:   { icon: '&#10004;', border: '#2E8B57', bg: '#EAF7EE' },
+  err:  { icon: '&#10006;', border: '#C00000', bg: '#FBEAEA' }
 };
+// Textes du contenu selon la langue du modèle
+const TXT = {
+  fr: { info: 'Information', warn: 'Attention', ok: 'Succès', err: 'Erreur', capture: 'Capture', captureDesc: 'Description de l’écran', figure: 'Figure',
+        hTitle: 'Titre du message', hSub: 'Sous-titre ou contexte', logo: 'Logo', sectionTitle: 'Titre de section', hello: 'Bonjour {{PRENOM}},<br><br>Votre texte ici.',
+        callout: 'Point de vigilance à respecter.', step: 'Étape', stepDesc: 'Description de l’action à réaliser.', btn: 'Ouvrir le portail', illus: 'Illustration', shot: 'Capture d’écran',
+        col: 'Colonne', left: 'Colonne de gauche', right: 'Colonne de droite', sig: '<b>Prénom NOM</b><br>Technicien support informatique<br>Société – Service Informatique<br>&#9742; 01 23 45 67 89 · <a href="mailto:support@domaine.fr">support@domaine.fr</a>',
+        footer: 'Message automatique envoyé par le service informatique. Merci de ne pas y répondre.', raw: 'Votre code HTML ici.', newStep: 'Nouvelle étape', desc: 'Description.' },
+  en: { info: 'Information', warn: 'Warning', ok: 'Success', err: 'Error', capture: 'Screenshot', captureDesc: 'Screen description', figure: 'Figure',
+        hTitle: 'Message title', hSub: 'Subtitle or context', logo: 'Logo', sectionTitle: 'Section title', hello: 'Hello {{PRENOM}},<br><br>Your text here.',
+        callout: 'Point of attention to respect.', step: 'Step', stepDesc: 'Description of the action to perform.', btn: 'Open the portal', illus: 'Illustration', shot: 'Screenshot',
+        col: 'Column', left: 'Left column', right: 'Right column', sig: '<b>First name LAST NAME</b><br>IT Support Technician<br>Company – IT Department<br>&#9742; +33 1 23 45 67 89 · <a href="mailto:support@domain.com">support@domain.com</a>',
+        footer: 'Automatic message sent by the IT department. Please do not reply.', raw: 'Your HTML code here.', newStep: 'New step', desc: 'Description.' }
+};
+const T = k => (TXT[doc.settings.lang] || TXT.fr)[k];
+const calloutLabel = variant => T(variant) || T('info');
 const BLOCKS = {
-  header:   { label: 'Bandeau',      hint: 'Titre coloré en tête', make: () => ({ title: 'Titre du message', subtitle: 'Sous-titre ou contexte', logo: '', logoW: 60, logoAlt: 'Logo', useBrand: true, bg: '', color: '#FFFFFF' }) },
-  title:    { label: 'Titre',        hint: 'Section numérotée ou non', make: () => ({ text: 'Titre de section', size: 18, underline: true }) },
-  text:     { label: 'Paragraphe',   hint: 'Texte libre', make: () => ({ html: 'Bonjour {{PRENOM}},<br><br>Votre texte ici.', size: 14, align: 'left' }) },
-  callout:  { label: 'Encadré',      hint: 'Info / Attention / Succès / Erreur', make: () => ({ variant: 'warn', html: 'Point de vigilance à respecter.' }) },
-  steps:    { label: 'Étapes',       hint: 'Procédure numérotée', make: () => ({ steps: [ { title: 'Première étape', html: 'Description de l’action à réaliser.' }, { title: 'Deuxième étape', html: 'Description.' }, { title: 'Troisième étape', html: 'Description.' } ] }) },
-  button:   { label: 'Bouton',       hint: 'Lien cliquable (VML Outlook)', make: () => ({ label: 'Ouvrir le portail', url: 'https://', align: 'center', width: 220, height: 42, color: '', textColor: '#FFFFFF' }) },
-  image:    { label: 'Image',        hint: 'Logo, illustration', make: () => ({ src: '', embed: '', width: 540, alt: 'Illustration', align: 'center', link: '' }) },
-  screenshot:{ label: 'Capture',     hint: 'Encadré pour screenshot + légende', make: () => ({ src: '', embed: '', width: 520, alt: 'Capture d’écran', caption: 'Capture 1 – Description de l’écran', border: '#C9D2DC', bg: '#F7F9FB', label: '' }) },
-  rawhtml:  { label: 'HTML libre',   hint: 'Code HTML inséré tel quel', make: () => ({ html: '<p style="margin:0;font-size:14px;line-height:20px;">Votre code HTML ici.</p>' }) },
-  table:    { label: 'Tableau',      hint: 'Données, planning, contacts', make: () => ({ headers: ['Colonne 1', 'Colonne 2', 'Colonne 3'], rows: [ ['', '', ''], ['', '', ''] ], zebra: true }) },
-  columns:  { label: '2 colonnes',   hint: 'Texte côte à côte', make: () => ({ left: 'Colonne de gauche', right: 'Colonne de droite' }) },
+  header:   { label: 'Bandeau',      hint: 'Titre coloré en tête', make: () => ({ title: T('hTitle'), subtitle: T('hSub'), logo: '', logoW: 60, logoAlt: T('logo'), useBrand: true, bg: '', color: '#FFFFFF' }) },
+  title:    { label: 'Titre',        hint: 'Section numérotée ou non', make: () => ({ text: T('sectionTitle'), size: 18, underline: true }) },
+  text:     { label: 'Paragraphe',   hint: 'Texte libre', make: () => ({ html: T('hello'), size: 14, align: 'left' }) },
+  callout:  { label: 'Encadré',      hint: 'Info / Attention / Succès / Erreur', make: () => ({ variant: 'warn', html: T('callout') }) },
+  steps:    { label: 'Étapes',       hint: 'Procédure numérotée', make: () => ({ numbering: 'number', start: 1, shape: 'round', size: 28, badgeColor: '', badgeText: '#FFFFFF', separators: true, titleColor: '', steps: [ { title: T('step') + ' 1', html: T('stepDesc'), label: '', variant: 'normal' }, { title: T('step') + ' 2', html: T('desc'), label: '', variant: 'normal' }, { title: T('step') + ' 3', html: T('desc'), label: '', variant: 'normal' } ] }) },
+  button:   { label: 'Bouton',       hint: 'Lien cliquable (VML Outlook)', make: () => ({ label: T('btn'), url: 'https://', align: 'center', width: 220, height: 42, color: '', textColor: '#FFFFFF' }) },
+  image:    { label: 'Image',        hint: 'Logo, illustration', make: () => ({ src: '', embed: '', width: 540, alt: T('illus'), align: 'center', link: '' }) },
+  screenshot:{ label: 'Capture',     hint: 'Encadré pour screenshot + légende', make: () => ({ src: '', embed: '', width: 520, alt: T('shot'), caption: T('capture') + ' 1 – ' + T('captureDesc'), border: '#C9D2DC', bg: '#F7F9FB', label: '' }) },
+  rawhtml:  { label: 'HTML libre',   hint: 'Code HTML inséré tel quel', make: () => ({ html: '<p style="margin:0;font-size:14px;line-height:20px;">' + T('raw') + '</p>' }) },
+  table:    { label: 'Tableau',      hint: 'Données, planning, contacts', make: () => ({ headers: [T('col') + ' 1', T('col') + ' 2', T('col') + ' 3'], rows: [ ['', '', ''], ['', '', ''] ], zebra: true }) },
+  columns:  { label: '2 colonnes',   hint: 'Texte côte à côte', make: () => ({ left: T('left'), right: T('right') }) },
   divider:  { label: 'Séparateur',   hint: 'Ligne fine', make: () => ({ color: '#DDDDDD' }) },
   spacer:   { label: 'Espace',       hint: 'Vide vertical', make: () => ({ height: 20 }) },
-  signature:{ label: 'Signature',    hint: 'Coordonnées + logo', make: () => ({ img: '', imgW: 90, imgAlt: 'Logo', html: '<b>Prénom NOM</b><br>Technicien support informatique<br>Société – Service Informatique<br>&#9742; 01 23 45 67 89 · <a href="mailto:support@domaine.fr">support@domaine.fr</a>' }) },
-  footer:   { label: 'Pied de page', hint: 'Mentions, contact', make: () => ({ html: 'Message automatique envoyé par le service informatique. Merci de ne pas y répondre.', bg: '#F2F2F2' }) }
+  signature:{ label: 'Signature',    hint: 'Coordonnées + logo', make: () => ({ img: '', imgW: 90, imgAlt: T('logo'), html: T('sig') }) },
+  footer:   { label: 'Pied de page', hint: 'Mentions, contact', make: () => ({ html: T('footer'), bg: '#F2F2F2' }) }
 };
 
 /* ------------------------------------------------------- Nettoyage HTML */
@@ -344,14 +425,24 @@ function cleanInline(html, opts = {}) {
   return t.innerHTML.replace(/^(<br\s*\/?>)+/i, '');
 }
 
+/* ------------------------------------------------------- Numérotation des étapes */
+function stepLabel(style, n) {
+  if (style === 'none') return '';
+  if (style === 'letter') { let s = ''; let x = n; while (x > 0) { x--; s = String.fromCharCode(65 + (x % 26)) + s; x = Math.floor(x / 26); } return s; }
+  if (style === 'roman') { const R = [[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']]; let s = '', x = n; for (const [v, r] of R) while (x >= v) { s += r; x -= v; } return s; }
+  if (style === 'dotted') return n + '.';
+  return String(n);
+}
+
 /* ------------------------------------------------------- Rendu des blocs */
 function renderBlock(b, edit) {
   const S = doc.settings;
   const FF = `font-family:${S.font},Arial,Helvetica,sans-serif;`;
   const brand = S.color;
+  const P = (S.pad ?? 28) + 'px';
   const v = p => edit ? (getPath(b, p) ?? '') : cleanInline(getPath(b, p) ?? '');
   const df = p => edit ? ` data-field="${p}"` : '';
-  const PAD = '0 28px';
+  const PAD = '0 ${P}';
   const T = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">`;
   const imgTag = (src, w, alt, extra = '') => src
     ? `<img src="${esc(src)}" width="${w}" alt="${esc(alt)}" style="display:block;border:0;outline:none;text-decoration:none;width:${w}px;max-width:100%;height:auto;${extra}">`
@@ -360,85 +451,93 @@ function renderBlock(b, edit) {
   switch (b.type) {
     case 'header': {
       const bg = b.useBrand || !b.bg ? brand : b.bg;
-      return `<tr><td bgcolor="${bg}" style="background-color:${bg};padding:22px 28px;">${T}<tr>` +
+      return `<tr><td bgcolor="${bg}" style="background-color:${bg};padding:22px ${P};">${T}<tr>` +
         (b.logo ? `<td width="${b.logoW + 16}" valign="middle" style="padding-right:16px;">${imgTag(b.logo, b.logoW, b.logoAlt)}</td>` : '') +
         `<td valign="middle" style="${FF}color:${b.color};"><div${df('title')} style="font-size:22px;line-height:28px;font-weight:bold;">${v('title')}</div>` +
         `<div${df('subtitle')} style="font-size:14px;line-height:20px;padding-top:4px;">${v('subtitle')}</div></td></tr></table></td></tr>`;
     }
     case 'title':
-      return `<tr><td style="padding:18px 28px 6px 28px;"><div${df('text')} style="${FF}font-size:${b.size}px;line-height:${b.size + 6}px;font-weight:bold;color:${brand};${b.underline ? `border-bottom:2px solid ${brand};padding-bottom:4px;` : ''}">${v('text')}</div></td></tr>`;
+      return `<tr><td style="padding:18px ${P} 6px ${P};"><div${df('text')} style="${FF}font-size:${b.size}px;line-height:${b.size + 6}px;font-weight:bold;color:${brand};${b.underline ? `border-bottom:2px solid ${brand};padding-bottom:4px;` : ''}">${v('text')}</div></td></tr>`;
     case 'text':
-      return `<tr><td style="padding:8px 28px;"><div${df('html')} style="${FF}font-size:${b.size}px;line-height:${Math.round(b.size * 1.45)}px;color:${S.text};text-align:${b.align};">${v('html')}</div></td></tr>`;
+      return `<tr><td style="padding:8px ${P};"><div${df('html')} style="${FF}font-size:${b.size}px;line-height:${Math.round(b.size * 1.45)}px;color:${S.text};text-align:${b.align};">${v('html')}</div></td></tr>`;
     case 'callout': {
       const c = CALLOUT[b.variant] || CALLOUT.info;
-      return `<tr><td style="padding:8px 28px;">${T}<tr>` +
+      return `<tr><td style="padding:8px ${P};">${T}<tr>` +
         `<td width="5" bgcolor="${c.border}" style="background-color:${c.border};width:5px;font-size:0;line-height:0;">&nbsp;</td>` +
         `<td bgcolor="${c.bg}" style="background-color:${c.bg};padding:12px 16px;${FF}font-size:14px;line-height:20px;color:${S.text};">` +
-        `<strong style="color:${c.border};">${c.icon} ${c.label} :</strong> <span${df('html')}>${v('html')}</span></td></tr></table></td></tr>`;
+        `<strong style="color:${c.border};">${c.icon} ${calloutLabel(b.variant)}${doc.settings.lang === 'fr' ? ' :' : ':'}</strong> <span${df('html')}>${v('html')}</span></td></tr></table></td></tr>`;
     }
     case 'steps': {
-      const n = b.steps.length;
-      const rows = b.steps.map((s, i) => `<tr>` +
-        `<td width="38" valign="top" style="padding:10px 0;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td width="28" height="28" align="center" valign="middle" bgcolor="${brand}" style="background-color:${brand};width:28px;height:28px;border-radius:14px;color:#ffffff;${FF}font-size:14px;font-weight:bold;">${i + 1}</td></tr></table></td>` +
-        `<td valign="top" style="padding:10px 0 10px 10px;${FF}font-size:14px;line-height:20px;color:${S.text};${i < n - 1 ? 'border-bottom:1px solid #E3E3E3;' : ''}">` +
-        `<div${df('steps.' + i + '.title')} style="font-weight:bold;color:${brand};padding-bottom:2px;">${v('steps.' + i + '.title')}</div>` +
-        `<div${df('steps.' + i + '.html')}>${v('steps.' + i + '.html')}</div></td></tr>`).join('');
-      return `<tr><td style="padding:6px 28px;">${T}${rows}</table></td></tr>`;
+      const n = b.steps.length, sz = b.size || 28, start = Number(b.start) || 1;
+      const VAR = { warn: '#E67E22', ok: '#2E8B57', err: '#C00000', info: '#2E75B6' };
+      const rows = b.steps.map((s, i) => {
+        const lab = (s.label ?? '') !== '' ? esc(s.label) : stepLabel(b.numbering || 'number', start + i);
+        const col = VAR[s.variant] || b.badgeColor || brand;
+        const tcol = b.titleColor || brand;
+        const fs = lab.length > 2 ? Math.max(10, Math.round(sz * 0.4)) : Math.round(sz * 0.5);
+        return `<tr>` +
+        (lab === '' ? '' : `<td width="${sz + 10}" valign="top" style="padding:10px 0;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td width="${sz}" height="${sz}" align="center" valign="middle" bgcolor="${col}" style="background-color:${col};width:${sz}px;height:${sz}px;${b.shape === 'square' ? 'border-radius:4px;' : `border-radius:${Math.round(sz / 2)}px;`}color:${b.badgeText || '#FFFFFF'};${FF}font-size:${fs}px;line-height:${sz}px;font-weight:bold;"${edit ? ' title="Numéro : modifiable dans Propriétés"' : ''}>${lab}</td></tr></table></td>`) +
+        `<td valign="top" style="padding:10px 0 10px ${lab === '' ? 0 : 10}px;${FF}font-size:14px;line-height:20px;color:${S.text};${b.separators !== false && i < n - 1 ? 'border-bottom:1px solid #E3E3E3;' : ''}">` +
+        `<div${df('steps.' + i + '.title')} style="font-weight:bold;color:${VAR[s.variant] || tcol};padding-bottom:2px;">${v('steps.' + i + '.title')}</div>` +
+        `<div${df('steps.' + i + '.html')}>${v('steps.' + i + '.html')}</div></td></tr>`; }).join('');
+      return `<tr><td style="padding:6px ${P};">${T}${rows}</table></td></tr>`;
     }
     case 'button': {
       const bg = b.color || brand;
       const label = edit ? (b.label || '') : stripTags(b.label);
       const url = b.url || '#';
       if (edit) {
-        return `<tr><td align="${b.align}" style="padding:14px 28px;"><a href="javascript:void(0)" style="display:inline-block;width:${b.width}px;line-height:${b.height}px;background-color:${bg};color:${b.textColor};${FF}font-size:15px;font-weight:bold;text-align:center;text-decoration:none;border-radius:4px;"><span${df('label')}>${esc(label)}</span></a></td></tr>`;
+        return `<tr><td align="${b.align}" style="padding:14px ${P};"><a href="javascript:void(0)" style="display:inline-block;width:${b.width}px;line-height:${b.height}px;background-color:${bg};color:${b.textColor};${FF}font-size:15px;font-weight:bold;text-align:center;text-decoration:none;border-radius:4px;"><span${df('label')}>${esc(label)}</span></a></td></tr>`;
       }
-      return `<tr><td align="${b.align}" style="padding:14px 28px;">` +
+      return `<tr><td align="${b.align}" style="padding:14px ${P};">` +
         `<!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${esc(url)}" style="height:${b.height}px;v-text-anchor:middle;width:${b.width}px;" arcsize="10%" strokecolor="${bg}" fillcolor="${bg}"><w:anchorlock/><center style="color:${b.textColor};${FF}font-size:15px;font-weight:bold;">${esc(label)}</center></v:roundrect><![endif]-->` +
         `<!--[if !mso]><!--><a href="${esc(url)}" target="_blank" style="display:inline-block;width:${b.width}px;line-height:${b.height}px;background-color:${bg};color:${b.textColor};${FF}font-size:15px;font-weight:bold;text-align:center;text-decoration:none;border-radius:4px;mso-hide:all;">${esc(label)}</a><!--<![endif]--></td></tr>`;
     }
     case 'image': {
       let img = imgTag(b.embed || b.src, b.width, b.alt);
       if (b.link && !edit && b.src) img = `<a href="${esc(b.link)}" target="_blank" style="text-decoration:none;">${img}</a>`;
-      return `<tr><td align="${b.align}" style="padding:10px 28px;">${img}</td></tr>`;
+      return `<tr><td align="${b.align}" style="padding:10px ${P};">${img}</td></tr>`;
     }
     case 'screenshot': {
       const src = b.embed || b.src;
       const img = src ? imgTag(src, b.width, b.alt) : (edit ? `<div class="ph" style="width:${b.width}px;max-width:100%">Capture d'écran : collez une image (Ctrl+V), ou indiquez un chemin dans Propriétés</div>` : '');
-      return `<tr><td align="center" style="padding:10px 28px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${b.width + 14}" bgcolor="${b.bg}" style="width:${b.width + 14}px;border:1px solid ${b.border};background-color:${b.bg};">` +
+      return `<tr><td align="center" style="padding:10px ${P};"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${b.width + 14}" bgcolor="${b.bg}" style="width:${b.width + 14}px;border:1px solid ${b.border};background-color:${b.bg};">` +
         (b.label || edit ? `<tr><td style="padding:6px 8px 0 8px;${FF}font-size:12px;line-height:16px;font-weight:bold;color:${brand};"><div${df('label')}>${v('label')}</div></td></tr>` : '') +
         `<tr><td style="padding:6px;">${img}</td></tr>` +
         `<tr><td align="center" style="padding:0 8px 8px 8px;${FF}font-size:12px;line-height:16px;font-style:italic;color:#666666;"><div${df('caption')}>${v('caption')}</div></td></tr></table></td></tr>`;
     }
     case 'rawhtml':
       return edit
-        ? `<tr><td style="padding:8px 28px;"><div class="rawView" data-raw="1"${df('html')}>${b.html}</div></td></tr>`
-        : `<tr><td style="padding:8px 28px;${FF}color:${S.text};">${b.html}</td></tr>`;
+        ? `<tr><td style="padding:8px ${P};"><div class="rawView" data-raw="1"${df('html')}>${b.html}</div></td></tr>`
+        : `<tr><td style="padding:8px ${P};${FF}color:${S.text};">${b.html}</td></tr>`;
     case 'table': {
       const th = b.headers.map((h, j) => `<td bgcolor="${brand}" style="background-color:${brand};border:1px solid #BFBFBF;padding:7px 9px;${FF}font-size:13px;font-weight:bold;color:#ffffff;"><div${df('headers.' + j)}>${v('headers.' + j)}</div></td>`).join('');
       const tr = b.rows.map((r, i) => `<tr>` + r.map((c, j) => `<td${b.zebra && i % 2 ? ' bgcolor="#F6F8FA"' : ''} style="${b.zebra && i % 2 ? 'background-color:#F6F8FA;' : ''}border:1px solid #BFBFBF;padding:6px 9px;${FF}font-size:13px;line-height:18px;color:${S.text};"><div${df('rows.' + i + '.' + j)}>${v('rows.' + i + '.' + j) || (edit ? '' : '&nbsp;')}</div></td>`).join('') + `</tr>`).join('');
-      return `<tr><td style="padding:10px 28px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;"><tr>${th}</tr>${tr}</table></td></tr>`;
+      return `<tr><td style="padding:10px ${P};"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;"><tr>${th}</tr>${tr}</table></td></tr>`;
     }
     case 'columns':
-      return `<tr><td style="padding:8px 28px;">${T}<tr>` +
+      return `<tr><td style="padding:8px ${P};">${T}<tr>` +
         `<td width="50%" valign="top" style="padding-right:10px;${FF}font-size:14px;line-height:20px;color:${S.text};"><div${df('left')}>${v('left')}</div></td>` +
         `<td width="50%" valign="top" style="padding-left:10px;${FF}font-size:14px;line-height:20px;color:${S.text};"><div${df('right')}>${v('right')}</div></td></tr></table></td></tr>`;
     case 'divider':
-      return `<tr><td style="padding:10px 28px;">${T}<tr><td height="1" bgcolor="${b.color}" style="background-color:${b.color};height:1px;font-size:0;line-height:0;">&nbsp;</td></tr></table></td></tr>`;
+      return `<tr><td style="padding:10px ${P};">${T}<tr><td height="1" bgcolor="${b.color}" style="background-color:${b.color};height:1px;font-size:0;line-height:0;">&nbsp;</td></tr></table></td></tr>`;
     case 'spacer':
       return `<tr><td height="${b.height}" style="height:${b.height}px;font-size:0;line-height:0;">&nbsp;</td></tr>`;
     case 'signature':
-      return `<tr><td style="padding:18px 28px 12px 28px;border-top:1px solid #E3E3E3;">${T.replace('width="100%"', '')}<tr>` +
+      return `<tr><td style="padding:18px ${P} 12px ${P};border-top:1px solid #E3E3E3;">${T.replace('width="100%"', '')}<tr>` +
         (b.img ? `<td valign="top" style="padding-right:14px;border-right:3px solid ${brand};">${imgTag(b.img, b.imgW, b.imgAlt)}</td>` : '') +
         `<td valign="top" style="padding-left:${b.img ? 14 : 0}px;${FF}font-size:13px;line-height:19px;color:${S.text};"><div${df('html')}>${v('html')}</div></td></tr></table></td></tr>`;
     case 'footer':
-      return `<tr><td bgcolor="${b.bg}" align="center" style="background-color:${b.bg};padding:14px 28px;${FF}font-size:11px;line-height:16px;color:#777777;"><div${df('html')}>${v('html')}</div></td></tr>`;
+      return `<tr><td bgcolor="${b.bg}" align="center" style="background-color:${b.bg};padding:14px ${P};${FF}font-size:11px;line-height:16px;color:#777777;"><div${df('html')}>${v('html')}</div></td></tr>`;
   }
   return '';
 }
 
 /* ------------------------------------------------------- Export complet */
-function buildHtml() {
+function buildHtml(opts = {}) {
   const S = doc.settings;
+  if (doc.mode === 'code') return doc.codeHtml || '';
+  const meta = opts.withMeta ? `<!--MTS_DOC:${b64enc(JSON.stringify(doc))}-->\n` : '';
   const rows = doc.blocks.map(b => renderBlock(b, false)).join('\n');
   const pre = S.preheader ? `<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">${esc(S.preheader)}</div>` : '';
   return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
@@ -459,14 +558,14 @@ function buildHtml() {
   img{border:0;line-height:100%;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;}
   p{margin:0;}
   a[x-apple-data-detectors]{color:inherit !important;text-decoration:none !important;}
-</style>
+${S.customCss ? S.customCss.trim() + '\n' : ''}</style>
 </head>
 <body style="margin:0;padding:0;background-color:${S.bg};">
-${pre}
+${meta}${pre}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${S.bg}" style="background-color:${S.bg};">
 <tr><td align="center" style="padding:24px 10px;">
 <!--[if mso]><table role="presentation" width="${S.width}" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td><![endif]-->
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center" bgcolor="#FFFFFF" style="max-width:${S.width}px;background-color:#FFFFFF;">
+<table role="presentation" width="${S.fluid ? '100%' : S.width}" cellpadding="0" cellspacing="0" border="0" align="center" bgcolor="#FFFFFF" style="${S.fluid ? 'width:100%;' : 'width:' + S.width + 'px;'}max-width:${S.width}px;background-color:#FFFFFF;">
 ${rows}
 </table>
 <!--[if mso]></td></tr></table><![endif]-->
@@ -482,7 +581,9 @@ function audit(html) {
   const add = (level, title, msg) => out.push({ level, title, msg });
   const S = doc.settings;
   if (!doc.blocks.length) add('warn', 'Mail vide', 'Ajoutez au moins un bloc.');
-  if (S.width > 640) add('warn', 'Largeur > 640 px', 'Outlook et les mobiles affichent mal au-delà de 600–640 px.');
+  if (doc.mode === 'code') add('info', 'Mode code complet', 'Le HTML est envoyé tel que saisi ; les contrôles ci-dessous s\'appliquent au code.');
+  if (S.width > 800) add('warn', 'Largeur > 800 px', 'Au-delà de 800 px, le mail déborde dans le volet de lecture Outlook et sur mobile.');
+  else if (S.width > 640) add('info', 'Largeur élargie', `${S.width} px : lisible sur écran large ; sur mobile, la largeur fluide aide.`);
   if (!SAFE_FONTS.includes(S.font)) add('warn', 'Police non standard', `« ${S.font} » n'est pas installée partout ; Arial/Calibri sont sûres.`);
   if (/background-image|url\(/i.test(html)) add('err', 'Image de fond', 'Outlook (moteur Word) ignore les images de fond CSS.');
   if (/display\s*:\s*(flex|grid)|position\s*:\s*(absolute|fixed)|float\s*:/i.test(html)) add('err', 'CSS de mise en page', 'flex, grid, float et position ne sont pas supportés par Outlook.');
@@ -493,7 +594,8 @@ function audit(html) {
     else if (/^http:\/\//i.test(src)) add('warn', 'Image en http://', `Préférez https : ${src.slice(0, 60)}`);
     if (!/\balt="[^"]+"/i.test(t)) add('warn', 'Image sans texte alternatif', 'Les images sont bloquées par défaut ; le texte alt reste visible.');
     const w = parseInt((t.match(/\bwidth="(\d+)"/) || [])[1] || 0, 10);
-    if (w > S.width - 56) add('warn', 'Image trop large', `${w} px dépasse la zone utile (${S.width - 56} px) : Outlook ne réduit pas les images.`);
+    const usable = S.width - 2 * (S.pad ?? 28);
+    if (doc.mode !== 'code' && w > usable) add('warn', 'Image trop large', `${w} px dépasse la zone utile (${usable} px) : Outlook ne réduit pas les images.`);
   });
   doc.blocks.forEach(b => {
     if (b.type === 'button' && (!b.url || b.url === 'https://' || b.url === '#')) add('err', 'Bouton sans lien', `Le bouton « ${stripTags(b.label)} » n'a pas d'URL.`);
@@ -521,8 +623,18 @@ function audit(html) {
 /* ------------------------------------------------------- Rendu UI */
 function renderCanvas() {
   const c = $('#canvas');
-  c.style.width = doc.settings.width + 'px';
+  document.body.classList.toggle('codemode', doc.mode === 'code');
   $('#canvasWrap').style.background = doc.settings.bg;
+  if (doc.mode === 'code') {
+    c.innerHTML = `<div class="codeWrap"><textarea id="codeArea" spellcheck="false" title="Code source complet"></textarea><iframe id="codePrev" title="Aperçu du code"></iframe></div>`;
+    const ta = c.querySelector('#codeArea'), fr = c.querySelector('#codePrev');
+    ta.value = doc.codeHtml || ''; fr.srcdoc = doc.codeHtml || '';
+    ta.addEventListener('input', () => { doc.codeHtml = ta.value; clearTimeout(inputTimer); inputTimer = setTimeout(() => { fr.srcdoc = doc.codeHtml; snapshot = JSON.stringify(doc); refreshOutputs(); autosave(); }, 500); });
+    ta.addEventListener('keydown', e => { if (e.key === 'Tab') { e.preventDefault(); const st = ta.selectionStart; ta.setRangeText('  ', st, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); } });
+    return;
+  }
+  c.style.width = doc.settings.fluid ? '100%' : doc.settings.width + 'px';
+  c.style.maxWidth = doc.settings.width + 'px';
   if (!doc.blocks.length) {
     c.innerHTML = `<div id="canvasEmpty"><b>Le mail est vide</b>Ajoutez des blocs depuis la colonne de gauche ou partez d'un modèle prêt.</div>`;
     return;
@@ -576,6 +688,7 @@ function onFieldInput(e) {
 }
 function renderStructure() {
   const ul = $('#structure');
+  if (doc.mode === 'code') { ul.innerHTML = '<li class="empty">Mode code complet : la structure par blocs est inactive. Repassez en Visuel pour convertir le code en blocs.</li>'; return; }
   if (!doc.blocks.length) { ul.innerHTML = '<li class="empty">Aucun bloc</li>'; return; }
   ul.innerHTML = doc.blocks.map(b => {
     const lab = BLOCKS[b.type].label;
@@ -589,7 +702,7 @@ function renderPalette() {
 function renderSettings() {
   const S = doc.settings;
   $('#docName').value = doc.name;
-  $('#sWidth').value = S.width; $('#sFont').value = S.font;
+  $('#sLang').value = S.lang || 'fr'; $('#sWidth').value = S.width; $('#sFont').value = S.font; $('#sFluid').checked = !!S.fluid; $('#sPad').value = S.pad ?? 28; $('#sCss').value = S.customCss || ''; $('#sMeta').checked = S.meta !== false;
   $('#sColor').value = S.color; $('#sColorTxt').value = S.color;
   $('#sText').value = S.text; $('#sTextTxt').value = S.text;
   $('#sBg').value = S.bg; $('#sBgTxt').value = S.bg;
@@ -602,7 +715,7 @@ const PROPS = {
   title:  [ ['text','Texte','text'], ['size','Taille (px)','number'], ['underline','Souligner','check'] ],
   text:   [ ['size','Taille du texte (px)','number'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite','justify|Justifié']] ],
   callout:[ ['variant','Type','select',['info|Information (bleu)','warn|Attention (orange)','ok|Succès (vert)','err|Erreur (rouge)']] ],
-  steps:  [],
+  steps:  [ ['numbering','Numérotation','select',['number|1, 2, 3','dotted|1., 2., 3.','letter|A, B, C','roman|I, II, III','none|Sans pastille']], ['start','Commencer à','number'], ['shape','Forme de la pastille','select',['round|Ronde','square|Carrée']], ['size','Taille de la pastille (px)','number'], ['badgeColor','Couleur de la pastille (vide = principale)','color'], ['badgeText','Couleur du numéro','color'], ['titleColor','Couleur des titres d\'étape (vide = principale)','color'], ['separators','Lignes de séparation','check'] ],
   button: [ ['label','Texte du bouton','text'], ['url','Lien (https://… ou mailto:)','text'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite']], ['width','Largeur (px)','number'], ['height','Hauteur (px)','number'], ['color','Couleur de fond (vide = principale)','color'], ['textColor','Couleur du texte','color'] ],
   image:  [ ['src','Chemin ou URL de l\'image','image'], ['embed','','embed'], ['width','Largeur (px)','number'], ['alt','Texte alternatif','text'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite']], ['link','Lien au clic (facultatif)','text'] ],
   screenshot:[ ['src','Chemin ou URL de la capture','image'], ['embed','','embed'], ['width','Largeur (px)','number'], ['alt','Texte alternatif','text'], ['label','Étiquette au-dessus (facultatif)','text'], ['caption','Légende','text'], ['border','Couleur du cadre','color'], ['bg','Fond du cadre','color'] ],
@@ -617,6 +730,7 @@ const PROPS = {
 function renderProps() {
   const body = $('#propsBody');
   const b = doc.blocks.find(x => x.id === selectedId);
+  if (doc.mode === 'code') { body.innerHTML = `<div class="title">Code complet</div><div class="sub">Vous éditez directement le HTML final.</div><div class="note">Le code est envoyé tel quel. Le bouton « Visuel » propose de le convertir en blocs (découpage automatique) ou de revenir aux blocs précédents.</div>`; return; }
   if (!b) { body.innerHTML = `<div class="title">Aucun bloc sélectionné</div><div class="sub">Cliquez sur un bloc du mail ou dans la structure.</div><div class="note">Les textes se modifient directement dans le mail. Ce panneau règle les options du bloc sélectionné (couleurs, tailles, liens, images).</div>`; return; }
   const def = BLOCKS[b.type];
   let h = `<div class="title">${def.label}</div><div class="sub">${def.hint}</div>`;
@@ -634,19 +748,29 @@ function renderProps() {
       : `<div class="btnrow"><button class="sm" data-embed="paste">Coller une capture du presse-papier</button><button class="sm" data-embed="file">Incorporer un fichier…</button></div>`);
     else if (type === 'image') h += `<div class="row"><input type="text" data-key="${key}" value="${esc(val)}" placeholder="C:\\Images\\capture.png ou https://…"><button class="sm" data-pick="${key}">Fichier…</button></div><div class="kv">Chemin local : embarqué à l'envoi par l'outil PowerShell. URL https : doit rester accessible.</div>`;
   }
-  if (b.type === 'steps') h += `<div class="btnrow"><button data-step="add">+ Ajouter une étape</button><button data-step="del" ${b.steps.length < 2 ? 'disabled' : ''}>– Retirer la dernière</button></div>`;
+  if (b.type === 'steps') {
+    const VARS = [['normal','Standard'],['info','Information (bleu)'],['warn','Attention (orange)'],['ok','Fait / OK (vert)'],['err','Critique (rouge)']];
+    h += `<hr><div class="title" style="font-size:13px">Étapes (${b.steps.length})</div><div class="sub">Numéro : vide = automatique ; sinon texte libre (2a, ★, ✓, Fin…)</div>`;
+    h += b.steps.map((st, i) => `<div style="border:1px solid var(--line);border-radius:var(--radius);padding:6px 8px;margin-bottom:6px">
+      <div class="row"><span style="flex:0 0 auto;color:var(--muted);font-size:12px;width:52px">Étape ${i + 1}</span><input type="text" data-stepkey="label" data-si="${i}" value="${esc(st.label ?? '')}" placeholder="${esc(stepLabel(b.numbering || 'number', (Number(b.start) || 1) + i))}" title="Numéro / étiquette de la pastille" style="flex:0 0 70px"><select data-stepkey="variant" data-si="${i}" title="Statut / couleur">${VARS.map(([v, l]) => `<option value="${v}" ${(st.variant || 'normal') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="row" style="margin-top:4px"><input type="text" data-stepkey="title" data-si="${i}" value="${esc(stripTags(st.title))}" placeholder="Titre de l'étape"></div>
+      <div class="btnrow" style="margin-top:6px"><button class="sm" data-stepact="up" data-si="${i}" ${i === 0 ? 'disabled' : ''}>▲</button><button class="sm" data-stepact="down" data-si="${i}" ${i === b.steps.length - 1 ? 'disabled' : ''}>▼</button><button class="sm" data-stepact="insert" data-si="${i}" title="Insérer une étape après">+ après</button><button class="sm" data-stepact="dup" data-si="${i}">Dupliquer</button><button class="sm danger" data-stepact="del" data-si="${i}" ${b.steps.length < 2 ? 'disabled' : ''}>✕</button></div></div>`).join('');
+    h += `<div class="btnrow"><button data-step="add">+ Ajouter une étape à la fin</button><button data-step="renum" title="Efface les numéros personnalisés pour revenir à la numérotation automatique">Renuméroter</button></div>`;
+  }
   if (b.type === 'table') h += `<div class="btnrow"><button data-tbl="addRow">+ Ligne</button><button data-tbl="delRow" ${b.rows.length < 2 ? 'disabled' : ''}>– Ligne</button><button data-tbl="addCol">+ Colonne</button><button data-tbl="delCol" ${b.headers.length < 2 ? 'disabled' : ''}>– Colonne</button></div>`;
   h += `<hr><div class="btnrow"><button data-act="up">▲ Monter</button><button data-act="down">▼ Descendre</button><button data-act="dup">Dupliquer</button><button data-act="del" class="danger">Supprimer</button></div>`;
   body.innerHTML = h;
 }
 $('#propsBody').addEventListener('input', e => {
   const b = doc.blocks.find(x => x.id === selectedId); if (!b) return;
-  const el = e.target, key = el.dataset.key; if (!key) return;
+  const el = e.target;
+  if (el.dataset.stepkey) { const st = b.steps[+el.dataset.si]; if (!st) return; st[el.dataset.stepkey] = el.value; commit({ canvas: true, structure: true }); return; }
+  const key = el.dataset.key; if (!key) return;
   let val = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value;
   if (el.dataset.color) { const twin = el.parentElement.querySelector('input[type=text]'); if (twin) twin.value = val; }
   else if (el.type === 'text' && el.parentElement.querySelector('input[type=color]')) { const cp = el.parentElement.querySelector('input[type=color]'); if (/^#[0-9a-f]{6}$/i.test(val)) cp.value = val; }
   b[key] = val;
-  commit({ canvas: true, structure: true, props: el.type === 'checkbox' });
+  commit({ canvas: true, structure: true, props: el.type === 'checkbox' || (b.type === 'steps' && (key === 'numbering' || key === 'start')) });
 });
 $('#propsBody').addEventListener('click', e => {
   const btn = e.target.closest('button'); if (!btn) return;
@@ -658,11 +782,21 @@ $('#propsBody').addEventListener('click', e => {
   if (btn.dataset.embed === 'file') { const inp = $('#fileImg'); inp.onchange = () => { const f = inp.files[0]; inp.value = ''; if (!f) return; const r = new FileReader(); r.onload = () => { b.embed = r.result; b.src = ''; commit({ canvas: true, props: true }); }; r.readAsDataURL(f); }; return inp.click(); }
   if (btn.dataset.embed === 'dl') return downloadEmbedded(b.embed, (stripTags(b.caption || b.alt || 'image')).replace(/[^\w\-]+/g, '_').slice(0, 40) + '.png');
   if (btn.dataset.embed === 'rm') { b.embed = ''; commit({ canvas: true, props: true }); return; }
-  if (btn.dataset.step === 'add') b.steps.push({ title: 'Nouvelle étape', html: 'Description.' });
+  if (btn.dataset.stepact) {
+    const i = +btn.dataset.si, a = btn.dataset.stepact, st = b.steps;
+    if (a === 'up' && i > 0) [st[i - 1], st[i]] = [st[i], st[i - 1]];
+    if (a === 'down' && i < st.length - 1) [st[i + 1], st[i]] = [st[i], st[i + 1]];
+    if (a === 'insert') st.splice(i + 1, 0, { title: T('newStep'), html: T('desc'), label: '', variant: 'normal' });
+    if (a === 'dup') st.splice(i + 1, 0, clone(st[i]));
+    if (a === 'del' && st.length > 1) st.splice(i, 1);
+    commit({ canvas: true, structure: true, props: true }); return;
+  }
+  if (btn.dataset.step === 'renum') b.steps.forEach(x => { x.label = ''; });
+  if (btn.dataset.step === 'add') b.steps.push({ title: T('newStep'), html: T('desc'), label: '', variant: 'normal' });
   if (btn.dataset.step === 'del') b.steps.pop();
   if (btn.dataset.tbl === 'addRow') b.rows.push(b.headers.map(() => ''));
   if (btn.dataset.tbl === 'delRow') b.rows.pop();
-  if (btn.dataset.tbl === 'addCol') { b.headers.push('Colonne'); b.rows.forEach(r => r.push('')); }
+  if (btn.dataset.tbl === 'addCol') { b.headers.push(T('col')); b.rows.forEach(r => r.push('')); }
   if (btn.dataset.tbl === 'delCol') { b.headers.pop(); b.rows.forEach(r => r.pop()); }
   commit({ canvas: true, structure: true, props: true });
 });
@@ -679,6 +813,7 @@ function pickImage(cb) {
 
 /* ------------------------------------------------------- Actions blocs */
 function addBlock(type) {
+  if (doc.mode === 'code') return toast('Repassez en mode Visuel pour ajouter des blocs');
   const b = Object.assign({ id: uid(), type }, BLOCKS[type].make());
   const idx = selectedId ? doc.blocks.findIndex(x => x.id === selectedId) + 1 : doc.blocks.length;
   doc.blocks.splice(idx, 0, b);
@@ -715,7 +850,7 @@ function undo() {
   if (!doc.blocks.find(b => b.id === selectedId)) selectedId = null;
   renderAll(); autosave(); $('#btnUndo').disabled = !history.length;
 }
-function renderAll() { renderSettings(); renderCanvas(); renderStructure(); renderProps(); refreshOutputs(); }
+function renderAll() { renderSettings(); renderCanvas(); renderStructure(); renderProps(); refreshOutputs(); applyModeUI(); }
 function refreshOutputs() {
   const html = buildHtml();
   $('#htmlOut').value = html;
@@ -781,7 +916,7 @@ function setEmbeddedImage(dataUrl) {
   const b = doc.blocks.find(x => x.id === selectedId);
   if (b && (b.type === 'screenshot' || b.type === 'image')) { b.embed = dataUrl; b.src = ''; commit({ canvas: true, structure: true, props: true }); toast('Image collée dans le bloc sélectionné'); return; }
   const n = doc.blocks.filter(x => x.type === 'screenshot').length + 1;
-  const nb = Object.assign({ id: uid(), type: 'screenshot' }, BLOCKS.screenshot.make(), { embed: dataUrl, caption: `Capture ${n} – Description de l’écran` });
+  const nb = Object.assign({ id: uid(), type: 'screenshot' }, BLOCKS.screenshot.make(), { embed: dataUrl, caption: `${T('capture')} ${n} – ${T('captureDesc')}` });
   const idx = selectedId ? doc.blocks.findIndex(x => x.id === selectedId) + 1 : doc.blocks.length;
   doc.blocks.splice(idx, 0, nb); selectedId = nb.id; commit({ canvas: true, structure: true, props: true });
   $(`.blk[data-id="${nb.id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -797,11 +932,208 @@ async function pasteImageFromClipboard() {
 function downloadEmbedded(dataUrl, name) {
   const a = document.createElement('a'); a.href = dataUrl; a.download = name; a.click();
 }
-$('#btnHtmlMode').addEventListener('click', () => {
-  htmlMode = !htmlMode; lastFocusedField = null;
-  $('#btnHtmlMode').classList.toggle('on', htmlMode); $('#btnHtmlMode').textContent = htmlMode ? 'Mode visuel' : 'Mode HTML';
-  $$('#fmtbar button[data-cmd],#fmtColorBtn,#fmtLink,#fmtVar,#fmtColor').forEach(b => b.disabled = htmlMode);
-  renderCanvas();
+/* ------------------------------------------------------- Modes d'édition */
+function currentMode() { return doc.mode === 'code' ? 'code' : (htmlMode ? 'html' : 'visual'); }
+function applyModeUI() {
+  const m = currentMode();
+  $$('#modes button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+  $$('#fmtbar button[data-cmd],#fmtColorBtn,#fmtLink,#fmtVar,#fmtColor').forEach(b => b.disabled = m !== 'visual');
+}
+async function setMode(m) {
+  if (m === currentMode()) return;
+  lastFocusedField = null;
+  if (m === 'code') {
+    doc.codeHtml = buildHtml({ withMeta: false }); doc.mode = 'code'; htmlMode = false;
+    commit({ canvas: true, structure: true, props: true }); applyModeUI(); return;
+  }
+  if (doc.mode === 'code') {
+    const opts = [
+      { value: 'split', label: 'Convertir le code en blocs', hint: 'Découpage automatique : titres, paragraphes, images, listes, tableaux' },
+      { value: 'single', label: 'Un seul bloc « HTML libre »', hint: 'Le code est conservé tel quel dans un bloc' }
+    ];
+    if (doc.blocks.length) opts.push({ value: 'back', label: 'Revenir aux blocs précédents', hint: 'Les modifications faites dans le code sont abandonnées' });
+    opts.push({ value: 'cancel', label: 'Rester en mode code', hint: '' });
+    const ch = await choose('Quitter le mode code', 'Comment reprendre le contenu ?', opts);
+    if (!ch || ch === 'cancel') return;
+    if (ch === 'split') { const r = htmlToDoc(doc.codeHtml, 'split'); doc.blocks = r.blocks; Object.assign(doc.settings, r.settings); }
+    if (ch === 'single') { doc.blocks = [mk('rawhtml', { html: bodyInner(doc.codeHtml) })]; }
+    doc.mode = 'blocks'; selectedId = null;
+  }
+  htmlMode = (m === 'html');
+  commit({ canvas: true, structure: true, props: true }); applyModeUI();
+}
+$('#modes').addEventListener('click', e => { const b = e.target.closest('button[data-mode]'); if (b) setMode(b.dataset.mode); });
+
+// Petite boîte de choix (Promise)
+function choose(title, msg, opts) {
+  return new Promise(res => {
+    const m = $('#chooseModal');
+    m.querySelector('.bar b').textContent = title; m.querySelector('.body p').textContent = msg;
+    const box = m.querySelector('.opts');
+    box.innerHTML = opts.map(o => `<button data-v="${o.value}"><b>${esc(o.label)}</b>${o.hint ? `<span>${esc(o.hint)}</span>` : ''}</button>`).join('');
+    const done = v => { m.classList.remove('on'); box.onclick = null; m.onclick = null; res(v); };
+    box.onclick = e => { const b = e.target.closest('button'); if (b) done(b.dataset.v); };
+    m.onclick = e => { if (e.target === m) done(null); };
+    m.querySelector('.close').onclick = () => done(null);
+    m.classList.add('on');
+  });
+}
+
+/* ------------------------------------------------------- Import HTML */
+function bodyInner(html) {
+  const m = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  return (m ? m[1] : html).replace(/<!--MTS_DOC:[^>]*-->/g, '').trim();
+}
+// Convertit un HTML quelconque en blocs (découpage heuristique) ou en un seul bloc
+function htmlToDoc(html, how) {
+  const dp = new DOMParser().parseFromString(html.replace(/<!--MTS_DOC:[^>]*-->/g, ''), 'text/html');
+  const body = dp.body;
+  const settings = {};
+  const wTable = dp.querySelector('table[width], table[style*="max-width"], table[style*="width"]');
+  if (wTable) { const w = parseInt(wTable.getAttribute('width') || (wTable.style.maxWidth || wTable.style.width || '').replace('px', ''), 10); if (w >= 320 && w <= 1400) settings.width = w; }
+  const bgc = body.getAttribute('bgcolor') || body.style.backgroundColor; if (bgc && /^#[0-9a-f]{6}$/i.test(bgc)) settings.bg = bgc;
+  const ff = (body.style.fontFamily || dp.querySelector('[style*="font-family"]')?.style.fontFamily || '').split(',')[0].replace(/["']/g, '').trim();
+  if (SAFE_FONTS.includes(ff)) settings.font = ff;
+  if (how === 'single') return { settings, blocks: [mk('rawhtml', { html: body.innerHTML.trim() })] };
+  dp.querySelectorAll('script,style,head,meta,link,title').forEach(n => n.remove());
+  // Supprime commentaires (dont VML conditionnel Outlook)
+  const walker = dp.createTreeWalker(body, 128); const cms = []; while (walker.nextNode()) cms.push(walker.currentNode); cms.forEach(n => n.remove());
+  const blocks = [];
+  const BLOCKY = /^(P|DIV|TABLE|TBODY|THEAD|TR|TD|TH|UL|OL|H[1-6]|HR|SECTION|ARTICLE|CENTER|BLOCKQUOTE|PRE|IMG|BR|FIGURE)$/;
+  const hasBlockChild = el => [...el.children].some(c => BLOCKY.test(c.tagName) && c.tagName !== 'BR' && c.tagName !== 'IMG');
+  const isDataTable = t => !!t.querySelector('th') || (t.rows.length > 1 && t.rows[0].cells.length > 1 && (parseInt(t.getAttribute('border') || 0, 10) > 0 || /border\s*:\s*1px/i.test(t.rows[0].cells[0].getAttribute('style') || '')));
+  const styleOf = el => (el.getAttribute('style') || '').toLowerCase();
+  const looksTitle = (el, h) => {
+    const txt = stripTags(h).trim(); if (!txt || txt.length > 120 || /<br|<li/i.test(h)) return false;
+    const st = styleOf(el); const size = parseInt((st.match(/font-size\s*:\s*(\d+)/) || [])[1] || 0, 10);
+    const bold = /font-weight\s*:\s*(bold|[6-9]00)/.test(st) || /^\s*<(b|strong)>[^<]*<\/(b|strong)>\s*$/i.test(h);
+    return (bold && size >= 15) || size >= 20;
+  };
+  let lastParent = null;
+  const pushText = (el, mergeable) => {
+    const h = sanitizePaste(el.innerHTML); if (!stripTags(h).trim()) return;
+    if (looksTitle(el, h)) { blocks.push(mk('title', { text: h.replace(/<\/?(b|strong)>/gi, '') })); lastParent = null; return; }
+    const last = blocks[blocks.length - 1];
+    if (mergeable && last && last.type === 'text' && lastParent === el.parentNode && stripTags(last.html).length < 1500) last.html += '<br><br>' + h;
+    else blocks.push(mk('text', { html: h }));
+    lastParent = mergeable ? el.parentNode : null;
+  };
+  const pushImgs = el => el.querySelectorAll('img').forEach(im => { const src = im.getAttribute('src') || ''; if (!src) return; const w = parseInt(im.getAttribute('width') || im.style.width || 0, 10) || 520; blocks.push(mk(/^data:/.test(src) ? 'screenshot' : 'image', { src: /^data:/.test(src) ? '' : src, embed: /^data:/.test(src) ? src : '', width: Math.min(w, (settings.width || 600) - 56), alt: im.getAttribute('alt') || '' })); });
+  const walk = node => {
+    for (const el of [...node.children]) {
+      const tag = el.tagName;
+      if (/display\s*:\s*none|mso-hide\s*:\s*all/i.test(el.getAttribute('style') || '')) continue;
+      const a = tag === 'A' ? el : (el.children.length === 1 && el.children[0].tagName === 'A' && !el.textContent.replace(el.children[0].textContent, '').trim() ? el.children[0] : null);
+      if (a && /background(-color)?\s*:/i.test(a.getAttribute('style') || '') && a.textContent.trim().length < 60) {
+        const st = a.getAttribute('style') || '';
+        blocks.push(mk('button', { label: a.textContent.trim(), url: a.getAttribute('href') || 'https://', color: (st.match(/background(?:-color)?\s*:\s*(#[0-9a-f]{6})/i) || [])[1] || '', textColor: (st.match(/(?:^|;)\s*color\s*:\s*(#[0-9a-f]{6})/i) || [])[1] || '#FFFFFF', width: parseInt((st.match(/width\s*:\s*(\d+)px/i) || [])[1] || 220, 10), align: (el.getAttribute('align') || el.style?.textAlign || 'center') }));
+        continue;
+      }
+      if (/^H[1-6]$/.test(tag)) { blocks.push(mk('title', { text: sanitizePaste(el.innerHTML), size: { H1: 22, H2: 18, H3: 16, H4: 15, H5: 14, H6: 13 }[tag] })); continue; }
+      if (tag === 'IMG') { pushImgs({ querySelectorAll: () => [el] }); continue; }
+      if (tag === 'HR') { blocks.push(mk('divider', {})); continue; }
+      if (tag === 'UL' || tag === 'OL') { blocks.push(mk('text', { html: sanitizePaste(el.outerHTML) })); continue; }
+      if (tag === 'TABLE' && isDataTable(el)) { el.querySelectorAll('*').forEach(x => ['class', 'id'].forEach(a => x.removeAttribute(a))); blocks.push(mk('rawhtml', { html: el.outerHTML })); continue; }
+      if (hasBlockChild(el)) { walk(el); continue; }
+      if (el.querySelector('img')) { const clone2 = el.cloneNode(true); pushImgs(el); clone2.querySelectorAll('img').forEach(i => i.remove()); if (clone2.textContent.trim()) pushText(clone2, false); continue; }
+      if (el.textContent.trim()) pushText(el, tag === 'P');
+    }
+  };
+  walk(body);
+  return { settings, blocks };
+}
+async function importHtmlText(text, fileName) {
+  const meta = text.match(/<!--MTS_DOC:([A-Za-z0-9+/=]+)-->/);
+  if (meta) { try { loadDoc(JSON.parse(b64dec(meta[1]))); toast('Modèle réimporté avec ses blocs'); return; } catch { } }
+  const ch = await choose('Importer « ' + (fileName || 'HTML') + ' »', 'Ce fichier ne vient pas de cet outil. Comment l’ouvrir ?', [
+    { value: 'split', label: 'Convertir en blocs (avec révision)', hint: 'Le convertisseur détecte titres, paragraphes, boutons, images, listes, tableaux ; vous validez le type de chaque bloc' },
+    { value: 'code', label: 'Ouvrir en mode code complet', hint: 'Le HTML est repris tel quel, éditable librement, envoyé sans modification' },
+    { value: 'single', label: 'Un seul bloc « HTML libre »', hint: 'Le corps du mail est conservé tel quel dans un bloc' }
+  ]);
+  if (!ch) return;
+  if (ch === 'split') { openConverter(text); return; }
+  const d = defaultDoc(); d.name = (fileName || 'Import').replace(/\.[^.]+$/, '');
+  if (ch === 'code') { d.mode = 'code'; d.codeHtml = text; }
+  else { const r = htmlToDoc(text, ch); Object.assign(d.settings, r.settings); d.blocks = r.blocks; }
+  loadDoc(d); toast(ch === 'split' ? `${d.blocks.length} bloc(s) créés` : 'HTML importé');
+}
+/* ------------------------------------------------------- Convertisseur */
+let convSegs = [], convSettings = {};
+const CONV_TYPES = [['text','Paragraphe'],['title','Titre'],['callout','Encadré'],['button','Bouton'],['image','Image'],['screenshot','Capture'],['rawhtml','HTML libre'],['divider','Séparateur'],['ignore','— Ignorer —']];
+function segPreview(b) { return stripTags(b.title || b.text || b.caption || b.label || b.html || b.left || (b.headers ? b.headers.join(' | ') : '') || b.src || b.alt || '').slice(0, 110); }
+function retype(b, type) {
+  if (b.type === type) return b;
+  const text = b.html ?? b.text ?? b.caption ?? b.label ?? '';
+  const n = Object.assign({ id: b.id, type }, BLOCKS[type] ? BLOCKS[type].make() : {});
+  if (type === 'text') n.html = b.type === 'rawhtml' ? sanitizePaste(text) : text;
+  if (type === 'title') n.text = stripTags(text).trim() || n.text;
+  if (type === 'callout') { n.html = text; n.variant = /warn|attention|important|warning/i.test(stripTags(text)) ? 'warn' : /error|erreur/i.test(stripTags(text)) ? 'err' : /succ/i.test(stripTags(text)) ? 'ok' : 'info'; }
+  if (type === 'button') { n.label = stripTags(text).slice(0, 60) || n.label; const m = String(b.html || b.url || '').match(/href="([^"]+)"/); n.url = b.url || (m ? m[1] : 'https://'); }
+  if (type === 'rawhtml') n.html = b.type === 'text' ? text : (b.html || `<p>${text}</p>`);
+  if (type === 'image' || type === 'screenshot') { n.src = b.src || ''; n.embed = b.embed || ''; n.width = b.width || n.width; n.alt = b.alt || n.alt; }
+  return n;
+}
+function convRender() {
+  const box = $('#convSegs');
+  box.innerHTML = convSegs.map((sg, i) => `<div class="seg${sg.on ? '' : ' off'}"><input type="checkbox" data-i="${i}" ${sg.on ? 'checked' : ''} style="width:auto"><select data-i="${i}">${CONV_TYPES.map(([v, l]) => `<option value="${v}" ${v === sg.type ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="pv" title="${esc(segPreview(sg.block))}">${esc(segPreview(sg.block)) || '<i>(sans texte)</i>'}</span></div>`).join('') || '<div class="kv" style="padding:10px">Aucun bloc détecté.</div>';
+  const on = convSegs.filter(x => x.on).length;
+  $('#convCount').textContent = convSegs.length ? `${on} bloc(s) retenu(s) sur ${convSegs.length}` : '';
+  $('#convAppend').disabled = $('#convReplace').disabled = !on;
+}
+function convAnalyze(html) {
+  if (!html.trim()) { toast('Collez ou importez du HTML d’abord'); return; }
+  const meta = html.match(/<!--MTS_DOC:([A-Za-z0-9+/=]+)-->/);
+  if (meta) { try { const d = JSON.parse(b64dec(meta[1])); convSettings = d.settings || {}; convSegs = d.blocks.map(b => ({ on: true, type: b.type, block: b })); $('#convInfo').textContent = 'Export de cet outil détecté : blocs repris à l’identique.'; convRender(); return; } catch { } }
+  const r = htmlToDoc(html, 'split');
+  convSettings = r.settings;
+  convSegs = r.blocks.map(b => ({ on: true, type: b.type, block: b }));
+  const det = Object.entries(convSettings).map(([k, v]) => `${k}: ${v}`).join(', ');
+  $('#convInfo').textContent = `${convSegs.length} bloc(s) détecté(s)` + (det ? ` · réglages détectés : ${det}` : '') + '. Ajustez le type de chaque bloc si besoin, décochez ceux à ignorer.';
+  convRender();
+}
+function openConverter(prefill) {
+  if (prefill != null) $('#convSrc').value = prefill;
+  convSegs = []; convSettings = {}; convRender(); $('#convInfo').textContent = 'Aucune analyse pour l\'instant.';
+  $('#convModal').classList.add('on');
+  if (prefill) convAnalyze(prefill);
+}
+function convApply(replace) {
+  let blocks = convSegs.filter(x => x.on && x.type !== 'ignore').map(x => retype(clone(x.block), x.type));
+  if ($('#convStrip').checked) blocks.forEach(b => {
+    ['html', 'text', 'left', 'right', 'caption'].forEach(k => { if (typeof b[k] === 'string') b[k] = b[k].replace(/<span style="[^"]*"[^>]*>/gi, '<span>').replace(/<span>([\s\S]*?)<\/span>/gi, '$1').replace(/\sstyle="[^"]*"/gi, ''); });
+    if (b.type === 'button') b.color = '';
+  });
+  blocks.forEach(b => { b.id = uid(); });
+  if (replace) { doc.mode = 'blocks'; doc.blocks = blocks; if ($('#convSettings').checked) Object.assign(doc.settings, convSettings); }
+  else { if (doc.mode === 'code') { toast('Repassez en mode Visuel pour ajouter des blocs'); return; } doc.blocks.push(...blocks); }
+  selectedId = blocks[0]?.id || null;
+  $('#convModal').classList.remove('on');
+  commit({ canvas: true, structure: true, props: true }); applyModeUI(); renderSettings();
+  toast(`${blocks.length} bloc(s) ${replace ? 'créés' : 'ajoutés'}`);
+}
+$('#btnConvert').addEventListener('click', () => openConverter(''));
+$('#convClose').addEventListener('click', () => $('#convModal').classList.remove('on'));
+$('#convAnalyze').addEventListener('click', () => convAnalyze($('#convSrc').value));
+$('#convFromCode').addEventListener('click', () => { $('#convSrc').value = buildHtml({ withMeta: false }); convAnalyze($('#convSrc').value); });
+$('#convFile').addEventListener('click', () => { const inp = $('#fileHtml'); inp.dataset.target = 'conv'; inp.click(); });
+$('#convSegs').addEventListener('change', e => { const i = +e.target.dataset.i; if (isNaN(i)) return; if (e.target.type === 'checkbox') convSegs[i].on = e.target.checked; else convSegs[i].type = e.target.value; convRender(); });
+$('#convAppend').addEventListener('click', () => convApply(false));
+$('#convReplace').addEventListener('click', () => convApply(true));
+// Coller du HTML riche directement dans la zone du convertisseur (depuis Outlook / navigateur)
+$('#convSrc').addEventListener('paste', e => { const h = e.clipboardData?.getData('text/html'); if (h && !e.clipboardData.getData('text/plain').trim().startsWith('<')) { e.preventDefault(); $('#convSrc').value = h; } });
+
+$('#btnImportHtml').addEventListener('click', () => { $('#fileHtml').dataset.target = ''; $('#fileHtml').click(); });
+$('#fileHtml').addEventListener('change', () => {
+  const f = $('#fileHtml').files[0]; const target = $('#fileHtml').dataset.target; $('#fileHtml').value = ''; if (!f) return;
+  const r = new FileReader(); r.onload = () => { if (target === 'conv') { $('#convSrc').value = r.result; convAnalyze(r.result); } else importHtmlText(r.result, f.name); }; r.readAsText(f, 'utf-8');
+});
+// Glisser un fichier .html / .json sur le canevas
+$('#canvasWrap').addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+$('#canvasWrap').addEventListener('drop', e => {
+  const f = e.dataTransfer.files[0]; if (!f) return; e.preventDefault();
+  const r = new FileReader();
+  r.onload = () => { if (/\.json$/i.test(f.name)) { try { loadDoc(JSON.parse(r.result)); toast('Modèle ouvert'); } catch { toast('JSON invalide'); } } else importHtmlText(r.result, f.name); };
+  r.readAsText(f, 'utf-8');
 });
 
 /* ------------------------------------------------------- Mise en forme */
@@ -864,8 +1196,15 @@ const bindSetting = (id, key, transform = v => v, twin = null) => $(id).addEvent
   const v = transform(e.target.value); if (v === undefined) return;
   doc.settings[key] = v; if (twin) $(twin).value = v; commit({ canvas: true });
 });
-bindSetting('#sWidth', 'width', v => Math.min(800, Math.max(480, Number(v) || 600)));
+bindSetting('#sWidth', 'width', v => Math.min(1400, Math.max(320, Number(v) || 600)));
+$('#sW600').addEventListener('click', () => { doc.settings.width = 600; $('#sWidth').value = 600; commit({ canvas: true }); });
+$('#sW800').addEventListener('click', () => { doc.settings.width = 800; $('#sWidth').value = 800; commit({ canvas: true }); });
+$('#sFluid').addEventListener('change', e => { doc.settings.fluid = e.target.checked; commit({ canvas: true }); });
+$('#sMeta').addEventListener('change', e => { doc.settings.meta = e.target.checked; autosave(); });
+bindSetting('#sPad', 'pad', v => Math.min(80, Math.max(0, Number(v) || 0)));
+bindSetting('#sCss', 'customCss');
 bindSetting('#sFont', 'font');
+$('#sLang').addEventListener('change', e => { doc.settings.lang = e.target.value; fillStarters(); commit({ canvas: true, structure: true, props: true }); toast(e.target.value === 'en' ? 'Content language: English' : 'Langue du contenu : français'); });
 bindSetting('#sColor', 'color', v => v, '#sColorTxt'); bindSetting('#sColorTxt', 'color', v => /^#[0-9a-f]{6}$/i.test(v) ? v : undefined, '#sColor');
 bindSetting('#sText', 'text', v => v, '#sTextTxt'); bindSetting('#sTextTxt', 'text', v => /^#[0-9a-f]{6}$/i.test(v) ? v : undefined, '#sText');
 bindSetting('#sBg', 'bg', v => v, '#sBgTxt'); bindSetting('#sBgTxt', 'bg', v => /^#[0-9a-f]{6}$/i.test(v) ? v : undefined, '#sBg');
@@ -876,7 +1215,7 @@ document.addEventListener('keydown', e => {
   const inEdit = document.activeElement && (document.activeElement.isContentEditable || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
   if (e.ctrlKey && e.key.toLowerCase() === 'z' && !inEdit) { e.preventDefault(); undo(); }
   if (e.key === 'Delete' && !inEdit && selectedId) { e.preventDefault(); blockAction(selectedId, 'del'); }
-  if (e.key === 'Escape') $('#previewModal').classList.remove('on');
+  if (e.key === 'Escape') { $('#previewModal').classList.remove('on'); $('#convModal').classList.remove('on'); }
 });
 $('#btnNew').addEventListener('click', () => { if (!doc.blocks.length || confirm('Créer un nouveau modèle vide ? Le modèle courant reste dans l’historique (Annuler).')) { doc = defaultDoc(); selectedId = null; pushHistory(); renderAll(); autosave(); } });
 
@@ -885,7 +1224,7 @@ function download(name, content, type = 'text/html;charset=utf-8') {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([content], { type })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 const safeName = () => (doc.name || 'modele').replace(/[^\w\-àâäéèêëîïôöùûüç ]/gi, '').trim().replace(/\s+/g, '_') || 'modele';
-const dl = () => { download(safeName() + '.html', buildHtml()); toast('Fichier HTML téléchargé'); };
+const dl = () => { download(safeName() + '.html', buildHtml({ withMeta: doc.settings.meta !== false && doc.mode !== 'code' })); toast('Fichier HTML téléchargé'); };
 $('#btnDownload').addEventListener('click', dl); $('#btnDownload2').addEventListener('click', dl);
 const copyHtml = async () => { try { await navigator.clipboard.writeText(buildHtml()); toast('HTML copié dans le presse-papier'); } catch { $('#htmlOut').select(); document.execCommand('copy'); toast('HTML copié'); } };
 $('#btnCopyHtml').addEventListener('click', copyHtml); $('#btnCopyHtml2').addEventListener('click', copyHtml);
@@ -907,8 +1246,9 @@ $('#fileJson').addEventListener('change', () => {
 function loadDoc(d) {
   if (!d || !Array.isArray(d.blocks)) throw new Error('bad');
   doc = Object.assign(defaultDoc(), d); doc.settings = Object.assign(defaultDoc().settings, d.settings || {});
+  if (doc.mode !== 'code') doc.mode = 'blocks';
   doc.blocks = doc.blocks.filter(b => BLOCKS[b.type]).map(b => Object.assign({ id: uid() }, BLOCKS[b.type].make(), b));
-  selectedId = null; pushHistory(); renderAll(); autosave();
+  selectedId = null; pushHistory(); fillStarters(); renderAll(); autosave();
 }
 
 /* ------------------------------------------------------- Aperçu */
@@ -940,7 +1280,7 @@ $('#libList').addEventListener('click', e => {
 
 /* ------------------------------------------------------- Modèles prêts */
 function mk(type, props) { return Object.assign({ id: uid(), type }, BLOCKS[type].make(), props); }
-const STARTERS = {
+const STARTERS_FR = {
   'Procédure pas à pas': () => ({ name: 'Procédure', settings: { preheader: 'Procédure à suivre – 5 minutes' }, blocks: [
     mk('header', { title: 'Procédure – [Titre]', subtitle: 'Référence PROC-IT-001 · {{DATE}}' }),
     mk('text', { html: 'Bonjour {{PRENOM}},<br><br>Veuillez trouver ci-dessous la procédure à suivre pour <b>[objectif]</b>. Durée estimée : 5 minutes.' }),
@@ -982,7 +1322,55 @@ const STARTERS = {
     mk('callout', { variant: 'ok', html: 'Le service informatique ne vous demandera jamais vos identifiants par mail.' }),
     mk('signature', {}), mk('footer', {}) ] })
 };
-Object.keys(STARTERS).forEach(k => { const o = document.createElement('option'); o.value = k; o.textContent = k; $('#selTemplate').appendChild(o); });
+const STARTERS_EN = {
+  'Step-by-step procedure': () => ({ name: 'Procedure', settings: { lang: 'en', preheader: 'Procedure to follow – 5 minutes' }, blocks: [
+    mk('header', { title: 'Procedure – [Title]', subtitle: 'Reference PROC-IT-001 · {{DATE}}' }),
+    mk('text', { html: 'Hello {{PRENOM}},<br><br>Please find below the procedure to follow to <b>[goal]</b>. Estimated time: 5 minutes.' }),
+    mk('title', { text: '1. Prerequisites' }),
+    mk('text', { html: '<ul><li>[Prerequisite 1]</li><li>[Prerequisite 2]</li></ul>' }),
+    mk('title', { text: '2. Steps' }),
+    mk('steps', { steps: [ { title: 'First step', html: 'Description of the action.' }, { title: 'Second step', html: 'Description.' }, { title: 'Third step', html: 'Description.' } ] }),
+    mk('screenshot', { caption: 'Screenshot 1 – Expected screen after step 2' }),
+    mk('callout', { variant: 'warn', html: '[Irreversible action, point of attention]' }),
+    mk('title', { text: '3. Verification' }),
+    mk('text', { html: '[How to check that the operation succeeded.]' }),
+    mk('callout', { variant: 'info', html: 'If you need help, contact the IT support: <a href="mailto:support@domain.com">support@domain.com</a> – +33 1 23 45 67 89.' }),
+    mk('signature', {}), mk('footer', {}) ] }),
+  'IT information / announcement': () => ({ name: 'IT information', settings: { lang: 'en', color: '#2E75B6' }, blocks: [
+    mk('header', { title: 'Information – [Subject]', subtitle: 'IT Department' }),
+    mk('text', { html: 'Hello {{PRENOM}},<br><br>The IT department informs you that <b>[new feature / change]</b> as of <b>[date]</b>.' }),
+    mk('title', { text: 'What changes for you' }),
+    mk('text', { html: '<ul><li>[Change 1]</li><li>[Change 2]</li></ul>' }),
+    mk('title', { text: 'What you need to do' }),
+    mk('text', { html: '[Expected action, before …]' }),
+    mk('button', { label: 'Open the portal', url: 'https://' }),
+    mk('callout', { variant: 'info', html: '[Useful detail, good to know]' }),
+    mk('signature', {}), mk('footer', {}) ] }),
+  'Scheduled maintenance': () => ({ name: 'Maintenance', settings: { lang: 'en', color: '#C00000' }, blocks: [
+    mk('header', { title: 'Scheduled maintenance – [Service]', subtitle: 'Planned outage' }),
+    mk('table', { headers: ['Start', 'Expected end', 'Impact'], rows: [['[DD/MM at HH:MM]', '[DD/MM at HH:MM]', '[Full outage]']], zebra: false }),
+    mk('text', { html: 'Hello {{PRENOM}},<br><br>A maintenance operation is scheduled on <b>[service]</b>. During this period, [impact description].' }),
+    mk('callout', { variant: 'err', html: 'Save your work and close your sessions before the maintenance starts.' }),
+    mk('text', { html: 'We apologise for any inconvenience.' }),
+    mk('signature', {}), mk('footer', {}) ] }),
+  'Security awareness': () => ({ name: 'Security', settings: { lang: 'en', color: '#385723' }, blocks: [
+    mk('header', { title: 'Security – [Phishing, passwords, MFA]', subtitle: 'Good habits' }),
+    mk('text', { html: 'Hello {{PRENOM}},<br><br>[Context: ongoing phishing campaign, reminder of best practices.]' }),
+    mk('steps', { steps: [
+      { title: 'Check the sender', html: 'Look at the full address, not only the display name.' },
+      { title: 'Do not click suspicious links', html: 'Hover to see the real destination.' },
+      { title: 'Never share your password', html: 'Not even with the IT department.' },
+      { title: 'When in doubt, report', html: 'Forward the email to <a href="mailto:security@domain.com">security@domain.com</a>.' } ] }),
+    mk('callout', { variant: 'ok', html: 'The IT department will never ask for your credentials by email.' }),
+    mk('signature', {}), mk('footer', {}) ] })
+};
+let STARTERS = STARTERS_FR;
+function fillStarters() {
+  STARTERS = doc.settings.lang === 'en' ? STARTERS_EN : STARTERS_FR;
+  const sel = $('#selTemplate'); sel.innerHTML = '<option value="">' + (doc.settings.lang === 'en' ? 'Ready-made templates…' : 'Modèles prêts…') + '</option>';
+  Object.keys(STARTERS).forEach(k => { const o = document.createElement('option'); o.value = k; o.textContent = k; sel.appendChild(o); });
+}
+
 $('#selTemplate').addEventListener('change', e => {
   const k = e.target.value; e.target.value = ''; if (!k) return;
   if (doc.blocks.length && !confirm('Remplacer le modèle courant par « ' + k + ' » ?')) return;
@@ -994,9 +1382,9 @@ let toastTimer;
 function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 2600); }
 
 /* ------------------------------------------------------- Démarrage */
-renderPalette(); renderLib();
-try { const s = localStorage.getItem(LS_AUTO); if (s) { doc = JSON.parse(s); doc = Object.assign(defaultDoc(), doc); } } catch { }
-renderAll();
+renderPalette(); renderLib(); fillStarters();
+try { const s = localStorage.getItem(LS_AUTO); if (s) { doc = JSON.parse(s); doc = Object.assign(defaultDoc(), doc); doc.settings = Object.assign(defaultDoc().settings, doc.settings || {}); } } catch { }
+fillStarters(); renderAll();
 snapshot = JSON.stringify(doc);
 $('#btnUndo').disabled = true;
 </script>
