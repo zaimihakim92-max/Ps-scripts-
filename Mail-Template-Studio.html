@@ -383,7 +383,7 @@ const TXT = {
 const T = k => (TXT[doc.settings.lang] || TXT.fr)[k];
 const calloutLabel = variant => T(variant) || T('info');
 const BLOCKS = {
-  header:   { label: 'Bandeau',      hint: 'Titre coloré en tête', make: () => ({ title: T('hTitle'), subtitle: T('hSub'), logo: '', logoEmbed: '', logoW: 60, logoAlt: T('logo'), logoPos: 'left', logoX: 0, logoY: 0, logoLayer: 'front', minHeight: 0, useBrand: true, bg: '', color: '#FFFFFF' }) },
+  header:   { label: 'Bandeau',      hint: 'Titre coloré en tête', make: () => ({ title: T('hTitle'), subtitle: T('hSub'), logo: '', logoEmbed: '', logoW: 60, logoAlt: T('logo'), logoPos: 'left', logoX: 0, logoY: 0, logoLayer: 'front', minHeight: 0, useBrand: true, bg: '', color: '#FFFFFF', titleFont: '', titleSize: 22, titleWeight: 'bold', subFont: '', subSize: 14, subColor: '', subStyle: 'normal', align: 'left', padV: 22 }) },
   title:    { label: 'Titre',        hint: 'Section numérotée ou non', make: () => ({ text: T('sectionTitle'), size: 18, underline: true }) },
   text:     { label: 'Paragraphe',   hint: 'Texte libre', make: () => ({ html: T('hello'), size: 14, align: 'left' }) },
   callout:  { label: 'Encadré',      hint: 'Info / Attention / Succès / Erreur', make: () => ({ variant: 'warn', html: T('callout') }) },
@@ -471,10 +471,12 @@ function renderBlock(b, edit) {
       const nat = b.logoNatW ? { natW: b.logoNatW, natH: b.logoNatH } : null;
       const logoTd = side => lsrc && pos === side ? `<td width="${b.logoW + 16}" valign="middle" style="${side === 'left' ? 'padding-right' : 'padding-left'}:16px;">${imgTag(lsrc, b.logoW, b.logoAlt, '', nat)}</td>` : '';
       const mh = Number(b.minHeight) > 0 ? `height="${b.minHeight}" ` : '';
-      return `<tr><td ${mh}bgcolor="${bg}" style="background-color:${bg};padding:22px ${P};${Number(b.minHeight) > 0 ? `height:${b.minHeight}px;` : ''}">${T}<tr>` +
+      const tf = `font-family:${b.titleFont || S.font},Arial,Helvetica,sans-serif;`, sf = `font-family:${b.subFont || b.titleFont || S.font},Arial,Helvetica,sans-serif;`;
+      const ts = Number(b.titleSize) || 22, ss = Number(b.subSize) || 14, pv = Number(b.padV) >= 0 ? Number(b.padV) : 22;
+      return `<tr><td ${mh}bgcolor="${bg}" style="background-color:${bg};padding:${pv}px ${P};${Number(b.minHeight) > 0 ? `height:${b.minHeight}px;` : ''}">${T}<tr>` +
         logoTd('left') +
-        `<td valign="middle" style="${FF}color:${b.color};"><div${df('title')} style="font-size:22px;line-height:28px;font-weight:bold;">${v('title')}</div>` +
-        `<div${df('subtitle')} style="font-size:14px;line-height:20px;padding-top:4px;">${v('subtitle')}</div></td>` +
+        `<td valign="middle" align="${b.align || 'left'}" style="${FF}color:${b.color};text-align:${b.align || 'left'};"><div${df('title')} style="${tf}font-size:${ts}px;line-height:${Math.round(ts * 1.25)}px;font-weight:${b.titleWeight || 'bold'};">${v('title')}</div>` +
+        `<div${df('subtitle')} style="${sf}font-size:${ss}px;line-height:${Math.round(ss * 1.4)}px;padding-top:4px;color:${b.subColor || b.color};font-style:${b.subStyle || 'normal'};">${v('subtitle')}</div></td>` +
         logoTd('right') + `</tr></table></td></tr>`;
     }
     case 'title':
@@ -499,9 +501,8 @@ function renderBlock(b, edit) {
         const txtCol = b.badgeText || '#FFFFFF';
         const htmlBadge = `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td width="${sz}" height="${sz}" align="center" valign="middle" bgcolor="${col}" style="background-color:${col};width:${sz}px;height:${sz}px;${b.shape === 'square' ? 'border-radius:4px;' : `border-radius:${Math.round(sz / 2)}px;`}color:${txtCol};${FF}font-size:${fs}px;line-height:${sz}px;font-weight:bold;"${edit ? ' title="Numéro : modifiable dans Propriétés"' : ''}>${lab}</td></tr></table>`;
         // Outlook ignore border-radius : la pastille est dessinée en VML (v:oval / v:roundrect)
-        const vml = b.shape === 'square'
-          ? `<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" arcsize="15%" fillcolor="${col}" strokecolor="${col}" style="width:${sz}px;height:${sz}px;v-text-anchor:middle;"><w:anchorlock/><center style="color:${txtCol};${FF}font-size:${fs}px;font-weight:bold;">${lab}</center></v:roundrect>`
-          : `<v:oval xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" fillcolor="${col}" strokecolor="${col}" style="width:${sz}px;height:${sz}px;v-text-anchor:middle;"><w:anchorlock/><center style="color:${txtCol};${FF}font-size:${fs}px;font-weight:bold;">${lab}</center></v:oval>`;
+        // v:oval rogne le texte (zone inscrite) : un roundrect à 50 % d'arc donne un cercle dont toute la surface porte le texte
+        const vml = `<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" arcsize="${b.shape === 'square' ? '15%' : '50%'}" fillcolor="${col}" stroked="f" style="width:${sz}px;height:${sz}px;v-text-anchor:middle;"><w:anchorlock/><center style="margin:0;padding:0;color:${txtCol};${FF}font-size:${fs}px;line-height:${fs + 2}px;mso-line-height-rule:exactly;font-weight:bold;">${lab}</center></v:roundrect>`;
         const badge = edit ? htmlBadge : `<!--[if mso]>${vml}<![endif]--><!--[if !mso]><!-->${htmlBadge}<!--<![endif]-->`;
         return `<tr>` +
         (lab === '' ? '' : `<td width="${sz + 10}" valign="top" style="padding:10px 0;">${badge}</td>`) +
@@ -797,7 +798,10 @@ function renderSettings() {
 
 /* ---- Panneau propriétés ---- */
 const PROPS = {
-  header: [ ['title','Titre','text'], ['subtitle','Sous-titre','text'], ['useBrand','Utiliser la couleur principale','check'], ['bg','Couleur de fond personnalisée','color'], ['color','Couleur du texte','color'], ['minHeight','Hauteur minimale du bandeau (px, 0 = auto)','number'],
+  header: [ ['title','Titre','text'], ['subtitle','Sous-titre','text'], ['useBrand','Utiliser la couleur principale','check'], ['bg','Couleur de fond personnalisée','color'], ['color','Couleur du titre','color'],
+            ['titleFont','Police du titre (vide = police du mail)','font'], ['titleSize','Taille du titre (px)','number'], ['titleWeight','Graisse du titre','select',['bold|Gras','normal|Normal']],
+            ['subFont','Police du sous-titre (vide = comme le titre)','font'], ['subSize','Taille du sous-titre (px)','number'], ['subColor','Couleur du sous-titre (vide = comme le titre)','color'], ['subStyle','Style du sous-titre','select',['normal|Normal','italic|Italique']],
+            ['align','Alignement du texte','select',['left|Gauche','center|Centré','right|Droite']], ['padV','Marge haut/bas du bandeau (px)','number'], ['minHeight','Hauteur minimale du bandeau (px, 0 = auto)','number'],
             ['logo','Logo / photo (chemin ou URL)','image'], ['logoEmbed','','embed'], ['logoW','Largeur du logo (px)','number'], ['logoAlt','Texte alternatif du logo','text'], ['logoPos','Position du logo','select',['left|À gauche du titre','right|À droite du titre','free|Libre (déplaçable à la souris)']], ['logoX','Logo : position X (mode libre)','number'], ['logoY','Logo : position Y (mode libre)','number'], ['logoLayer','Logo : niveau (mode libre)','select',['front|Devant le texte','back|Derrière le texte']] ],
   title:  [ ['text','Texte','text'], ['size','Taille (px)','number'], ['underline','Souligner','check'] ],
   text:   [ ['size','Taille du texte (px)','number'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite','justify|Justifié']] ],
@@ -831,6 +835,7 @@ function renderProps() {
     else if (type === 'check') h += `<div class="row"><input type="checkbox" data-key="${key}" ${val ? 'checked' : ''} style="width:auto;flex:0"><span style="color:var(--muted);font-size:12px">${val ? 'Oui' : 'Non'}</span></div>`;
     else if (type === 'color') h += `<div class="row"><input type="color" data-key="${key}" data-color="1" value="${/^#[0-9a-f]{6}$/i.test(val) ? val : '#000000'}"><input type="text" data-key="${key}" value="${esc(val)}" placeholder="#RRGGBB"></div>`;
     else if (type === 'select') h += `<select data-key="${key}">${opts.map(o => { const [v, l] = o.split('|'); return `<option value="${v}" ${v == val ? 'selected' : ''}>${l}</option>`; }).join('')}</select>`;
+    else if (type === 'font') h += `<select data-key="${key}"><option value="">— Police du mail —</option>${SAFE_FONTS.map(f => `<option value="${f}" ${f === val ? 'selected' : ''} style="font-family:${f}">${f}</option>`).join('')}</select>`;
     else if (type === 'hostsel') h += `<select data-key="host"><option value="">— Autonome (ligne à part) —</option>${doc.blocks.filter(x => x.id !== b.id && !(x.type === 'freeimg')).map(x => `<option value="${x.id}" ${x.id === val ? 'selected' : ''}>${esc(blockLabelOf(x))}</option>`).join('')}</select><div class="kv">Vous pouvez aussi glisser l'image directement sur un bloc du mail.</div><div class="btnrow"><button class="sm" data-layer="back" ${val ? '' : 'disabled'}>Reculer (derrière)</button><button class="sm" data-layer="front" ${val ? '' : 'disabled'}>Avancer (devant)</button></div>`;
     else if (type === 'textarea') h += `<textarea data-key="${key}" rows="10" class="srcField" style="border-style:solid" spellcheck="false">${esc(val)}</textarea>`;
     else if (type === 'embed') h += (val
