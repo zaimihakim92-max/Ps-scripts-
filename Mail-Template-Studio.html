@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mail Template Studio – modèles de mail conformes Outlook</title>
+<style>
+  :root{
+    --bg:#EEF1F5; --panel:#FFFFFF; --ink:#1B2A41; --muted:#5B6B7F; --line:#D8DEE7; --line2:#EDF0F4;
+    --accent:#0E7C86; --accent-ink:#0A5C64; --accent-soft:#E3F3F4;
+    --warn:#B7791F; --warn-soft:#FBF3E3; --err:#B42318; --err-soft:#FBE9E7; --ok:#1A7F4B; --ok-soft:#E5F4EB;
+    --radius:6px; --font:"Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{font:13px/1.45 var(--font);color:var(--ink);background:var(--bg);display:grid;grid-template-rows:52px 1fr;overflow:hidden}
+  button,input,select,textarea{font:inherit;color:inherit}
+  button{cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:var(--radius);padding:6px 10px;line-height:1.2}
+  button:hover{border-color:#B9C3D0;background:#F7F9FB}
+  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[contenteditable]:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  button.primary:hover{background:var(--accent-ink);border-color:var(--accent-ink)}
+  button.ghost{border-color:transparent;background:transparent}
+  button.ghost:hover{background:var(--line2)}
+  button.danger{color:var(--err)}
+  button:disabled{opacity:.45;cursor:default}
+  input[type=text],input[type=number],input[type=url],select,textarea{width:100%;border:1px solid var(--line);border-radius:var(--radius);padding:6px 8px;background:#fff}
+  input[type=color]{width:38px;height:30px;padding:2px;border:1px solid var(--line);border-radius:var(--radius);background:#fff}
+  textarea{resize:vertical;min-height:70px}
+  label{display:block;color:var(--muted);font-size:12px;margin:8px 0 3px}
+  .row{display:flex;gap:6px;align-items:center}
+  .row>*{flex:1}
+  .row>input[type=color],.row>button.sm{flex:0 0 auto}
+  button.sm{padding:4px 8px;font-size:12px}
+  hr{border:0;border-top:1px solid var(--line);margin:12px 0}
+
+  /* ---- Barre haute ---- */
+  header{display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+  header .brand{font-weight:700;font-size:15px;letter-spacing:-.01em;white-space:nowrap}
+  header .brand small{font-weight:400;color:var(--muted);margin-left:6px}
+  header input#docName{width:260px;flex:0 0 auto}
+  header .spacer{flex:1}
+  header .actions{display:flex;gap:6px;flex-wrap:wrap}
+
+  /* ---- Corps 3 colonnes ---- */
+  main{display:grid;grid-template-columns:250px 1fr 370px;min-height:0}
+  aside{background:var(--panel);overflow:auto;min-height:0}
+  #left{border-right:1px solid var(--line)}
+  #right{border-left:1px solid var(--line);display:flex;flex-direction:column}
+  .section{padding:12px 12px 10px}
+  .section h2{font-size:12px;font-weight:600;color:var(--muted);margin:0 0 8px}
+  .palette{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .palette button{text-align:left;padding:8px 8px;display:flex;flex-direction:column;gap:2px}
+  .palette button b{font-weight:600}
+  .palette button span{font-size:11px;color:var(--muted)}
+  #structure{list-style:none;margin:0;padding:0}
+  #structure li{display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid transparent;border-radius:var(--radius);cursor:grab;user-select:none}
+  #structure li:hover{background:var(--line2)}
+  #structure li.sel{background:var(--accent-soft);border-color:var(--accent)}
+  #structure li .grip{color:#B0BAC6;font-size:14px}
+  #structure li .t{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #structure li.dragover{border-top:2px solid var(--accent)}
+  #structure .empty{color:var(--muted);padding:8px;font-size:12px}
+
+  /* ---- Canevas ---- */
+  #center{display:flex;flex-direction:column;min-height:0}
+  #fmtbar{display:flex;gap:4px;align-items:center;padding:6px 12px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  #fmtbar button{padding:4px 8px;min-width:30px}
+  #fmtbar .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+  #fmtbar select{width:auto;padding:4px 6px}
+  #fmtbar .hint{margin-left:auto;color:var(--muted);font-size:12px}
+  #canvasWrap{flex:1;overflow:auto;padding:28px 20px}
+  #canvas{margin:0 auto;background:#fff;box-shadow:0 1px 3px rgba(27,42,65,.12),0 8px 24px rgba(27,42,65,.08)}
+  #canvas table{border-collapse:collapse}
+  .blk{position:relative;outline:1px dashed transparent;outline-offset:-1px}
+  .blk:hover{outline-color:#9FB3C8}
+  .blk.sel{outline:2px solid var(--accent);outline-offset:-2px}
+  .blk .tools{position:absolute;top:4px;right:-2px;transform:translateX(100%);display:none;flex-direction:column;gap:2px;padding-left:6px;z-index:5}
+  .blk.sel .tools{display:flex}
+  .blk .tools button{padding:3px 6px;font-size:12px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+  [contenteditable]{min-height:1em;cursor:text}
+  [contenteditable]:empty::before{content:"Saisir le texte…";color:#A0A8B4}
+  .ph{border:2px dashed #C7D0DB;color:#7A8797;padding:24px;text-align:center;font-size:12px}
+  #canvasEmpty{text-align:center;color:var(--muted);padding:60px 20px}
+  #canvasEmpty b{display:block;font-size:15px;color:var(--ink);margin-bottom:6px}
+
+  /* ---- Panneau droit ---- */
+  .tabs{display:flex;border-bottom:1px solid var(--line)}
+  .tabs button{flex:1;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;padding:10px 4px;font-weight:600;color:var(--muted)}
+  .tabs button.on{color:var(--accent-ink);border-bottom-color:var(--accent)}
+  .tabpane{display:none;flex:1;overflow:auto;min-height:0}
+  .tabpane.on{display:block}
+  #props .title{font-weight:600;font-size:14px;margin-bottom:2px}
+  #props .sub{color:var(--muted);font-size:12px;margin-bottom:8px}
+  .btnrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .btnrow button{flex:1}
+  #htmlOut{font:12px/1.4 Consolas,"Cascadia Mono",monospace;min-height:260px;height:calc(100% - 140px);white-space:pre;overflow:auto}
+  .score{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:var(--radius);margin-bottom:10px}
+  .score .n{font-size:30px;font-weight:700;line-height:1}
+  .score .n.ok{color:var(--ok)} .score .n.warn{color:var(--warn)} .score .n.err{color:var(--err)}
+  .score small{color:var(--muted)}
+  .issues{list-style:none;margin:0;padding:0}
+  .issues li{padding:8px 10px;border-radius:var(--radius);margin-bottom:6px;font-size:12px;border-left:3px solid}
+  .issues li.err{background:var(--err-soft);border-color:var(--err)}
+  .issues li.warn{background:var(--warn-soft);border-color:var(--warn)}
+  .issues li.info{background:var(--line2);border-color:#9FB3C8}
+  .issues li b{display:block;margin-bottom:2px}
+  .kv{font-size:12px;color:var(--muted);margin:6px 0}
+  .lib{list-style:none;margin:0;padding:0}
+  .lib li{display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--line2)}
+  .lib li .t{flex:1}
+  .note{background:var(--accent-soft);border-radius:var(--radius);padding:8px 10px;font-size:12px;color:var(--accent-ink);margin:8px 0}
+
+  /* ---- Modales ---- */
+  .modal{position:fixed;inset:0;background:rgba(27,42,65,.45);display:none;align-items:center;justify-content:center;z-index:50}
+  .modal.on{display:flex}
+  .modal .box{background:#fff;border-radius:10px;width:min(980px,94vw);height:min(86vh,900px);display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  .modal .bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .modal .bar .spacer{flex:1}
+  .modal iframe{flex:1;border:0;background:#EEF1F5}
+  .modal .frameWrap{flex:1;display:flex;justify-content:center;background:#DCE2EA;overflow:auto;padding:16px}
+  .modal .frameWrap iframe{background:#fff;height:100%;transition:width .2s}
+  #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:10px 16px;border-radius:8px;opacity:0;transition:.2s;pointer-events:none;z-index:60}
+  #toast.on{opacity:1;transform:translateX(-50%)}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+  @media (max-width:1100px){main{grid-template-columns:220px 1fr 320px}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">Mail Template Studio <small>HTML conforme Outlook</small></div>
+  <input type="text" id="docName" placeholder="Nom du modèle" title="Nom du modèle">
+  <div class="spacer"></div>
+  <div class="actions">
+    <button id="btnNew">Nouveau</button>
+    <select id="selTemplate" title="Partir d'un modèle prêt"><option value="">Modèles prêts…</option></select>
+    <button id="btnUndo" title="Annuler (Ctrl+Z hors zone de texte)">↶ Annuler</button>
+    <button id="btnImport">Ouvrir (.json)</button>
+    <button id="btnExportJson">Enregistrer (.json)</button>
+    <button id="btnPreview">Aperçu</button>
+    <button id="btnCopyOutlook" title="Copie le rendu pour le coller directement dans un nouveau message Outlook">Copier pour Outlook</button>
+    <button id="btnCopyHtml">Copier le HTML</button>
+    <button id="btnDownload" class="primary">Télécharger .html</button>
+  </div>
+</header>
+
+<main>
+  <!-- ======== Colonne gauche ======== -->
+  <aside id="left">
+    <div class="section">
+      <h2>Ajouter un bloc</h2>
+      <div class="palette" id="palette"></div>
+    </div>
+    <div class="section">
+      <h2>Structure du mail</h2>
+      <ul id="structure"></ul>
+    </div>
+    <div class="section">
+      <h2>Réglages généraux</h2>
+      <label>Largeur du mail (px)</label>
+      <input type="number" id="sWidth" min="480" max="800" step="10">
+      <label>Police</label>
+      <select id="sFont">
+        <option>Calibri</option><option>Arial</option><option>Segoe UI</option><option>Verdana</option><option>Tahoma</option><option>Georgia</option><option>Times New Roman</option>
+      </select>
+      <label>Couleur principale (titres, bandeau, boutons)</label>
+      <div class="row"><input type="color" id="sColor"><input type="text" id="sColorTxt" placeholder="#1F4E79"></div>
+      <label>Couleur du texte</label>
+      <div class="row"><input type="color" id="sText"><input type="text" id="sTextTxt"></div>
+      <label>Fond de page (autour du mail)</label>
+      <div class="row"><input type="color" id="sBg"><input type="text" id="sBgTxt"></div>
+      <label>Pré-en-tête (texte affiché dans la liste des messages)</label>
+      <input type="text" id="sPreheader" placeholder="Résumé en une ligne, facultatif">
+    </div>
+  </aside>
+
+  <!-- ======== Canevas ======== -->
+  <section id="center">
+    <div id="fmtbar">
+      <button data-cmd="bold" title="Gras (Ctrl+B)"><b>G</b></button>
+      <button data-cmd="italic" title="Italique (Ctrl+I)"><i>I</i></button>
+      <button data-cmd="underline" title="Souligné (Ctrl+U)"><u>S</u></button>
+      <button data-cmd="strikeThrough" title="Barré"><s>ab</s></button>
+      <span class="sep"></span>
+      <input type="color" id="fmtColor" title="Couleur du texte" value="#C00000">
+      <button id="fmtColorBtn" title="Appliquer la couleur">A</button>
+      <button data-cmd="hiliteColor" data-val="#FFF2A8" title="Surligner en jaune">Surl.</button>
+      <span class="sep"></span>
+      <button data-cmd="insertUnorderedList" title="Liste à puces">• Liste</button>
+      <button data-cmd="insertOrderedList" title="Liste numérotée">1. Liste</button>
+      <span class="sep"></span>
+      <button id="fmtLink" title="Insérer / modifier un lien">Lien</button>
+      <button data-cmd="unlink" title="Retirer le lien">Sans lien</button>
+      <select id="fmtVar" title="Insérer une variable (remplacée à l'envoi)">
+        <option value="">Variable…</option>
+        <option>{{PRENOM}}</option><option>{{NOM}}</option><option>{{NOMCOMPLET}}</option><option>{{EMAIL}}</option><option>{{DATE}}</option><option>{{HEURE}}</option>
+      </select>
+      <button data-cmd="removeFormat" title="Effacer la mise en forme">Effacer</button>
+      <span class="hint">Cliquez dans un texte du mail pour l'éditer directement</span>
+    </div>
+    <div id="canvasWrap"><div id="canvas"></div></div>
+  </section>
+
+  <!-- ======== Colonne droite ======== -->
+  <aside id="right">
+    <div class="tabs">
+      <button class="on" data-tab="props">Propriétés</button>
+      <button data-tab="check">Conformité</button>
+      <button data-tab="html">HTML</button>
+      <button data-tab="lib">Mes modèles</button>
+    </div>
+    <div class="tabpane on" id="props"><div class="section" id="propsBody"></div></div>
+    <div class="tabpane" id="check"><div class="section" id="checkBody"></div></div>
+    <div class="tabpane" id="html">
+      <div class="section" style="height:100%;display:flex;flex-direction:column">
+        <div class="kv" id="htmlInfo"></div>
+        <textarea id="htmlOut" readonly spellcheck="false"></textarea>
+        <div class="btnrow"><button id="btnCopyHtml2">Copier</button><button id="btnDownload2" class="primary">Télécharger .html</button></div>
+        <div class="note">Les images référencées par un chemin local (C:\…, \\serveur\…) sont embarquées automatiquement par Mail-Campaign-Tool.ps1 à l'envoi.</div>
+      </div>
+    </div>
+    <div class="tabpane" id="lib">
+      <div class="section">
+        <div class="row"><input type="text" id="libName" placeholder="Nom pour enregistrer le modèle courant"><button id="libSave" class="primary sm">Enregistrer</button></div>
+        <ul class="lib" id="libList"></ul>
+        <div class="kv">Les modèles sont conservés dans le stockage local de ce navigateur. Utilisez « Enregistrer (.json) » pour les partager ou les archiver.</div>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<!-- Aperçu -->
+<div class="modal" id="previewModal">
+  <div class="box">
+    <div class="bar">
+      <b>Aperçu</b>
+      <span class="kv">rendu navigateur ; Outlook (moteur Word) ignore les coins arrondis et certaines marges</span>
+      <span class="spacer"></span>
+      <button class="sm" data-w="100%">Bureau</button>
+      <button class="sm" data-w="600px">600 px</button>
+      <button class="sm" data-w="380px">Mobile</button>
+      <button class="sm" id="previewClose">Fermer</button>
+    </div>
+    <div class="frameWrap"><iframe id="previewFrame" title="Aperçu du mail" style="width:100%"></iframe></div>
+  </div>
+</div>
+<input type="file" id="fileJson" accept=".json,application/json" hidden>
+<input type="file" id="fileImg" accept="image/*" hidden>
+<div id="toast"></div>
+
+<script>
+/* =====================================================================
+   Mail Template Studio — 100 % autonome, aucune ressource externe.
+   ===================================================================== */
+'use strict';
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const uid = () => 'b' + Math.random().toString(36).slice(2, 9);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const stripTags = h => { const d = document.createElement('div'); d.innerHTML = h || ''; return d.textContent || ''; };
+const clone = o => JSON.parse(JSON.stringify(o));
+const getPath = (o, p) => p.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
+const setPath = (o, p, v) => { const ks = p.split('.'); let a = o; for (let i = 0; i < ks.length - 1; i++) a = a[ks[i]]; a[ks[ks.length - 1]] = v; };
+
+/* ---------------------------------------------------------------- État */
+const SAFE_FONTS = ['Calibri','Arial','Segoe UI','Verdana','Tahoma','Georgia','Times New Roman','Helvetica','Trebuchet MS','Courier New'];
+function defaultDoc() {
+  return { name: 'Nouveau modèle', settings: { width: 600, font: 'Calibri', color: '#1F4E79', text: '#333333', bg: '#F2F2F2', preheader: '' }, blocks: [] };
+}
+let doc = defaultDoc();
+let selectedId = null;
+let history = [];
+let snapshot = '';
+let lastFocusedField = null;
+let savedRange = null;
+
+/* ------------------------------------------------------- Définition blocs */
+const CALLOUT = {
+  info: { label: 'Information', icon: '&#8505;', border: '#2E75B6', bg: '#EAF2FB' },
+  warn: { label: 'Attention',   icon: '&#9888;', border: '#E67E22', bg: '#FDF2E9' },
+  ok:   { label: 'Succès',      icon: '&#10004;', border: '#2E8B57', bg: '#EAF7EE' },
+  err:  { label: 'Erreur',      icon: '&#10006;', border: '#C00000', bg: '#FBEAEA' }
+};
+const BLOCKS = {
+  header:   { label: 'Bandeau',      hint: 'Titre coloré en tête', make: () => ({ title: 'Titre du message', subtitle: 'Sous-titre ou contexte', logo: '', logoW: 60, logoAlt: 'Logo', useBrand: true, bg: '', color: '#FFFFFF' }) },
+  title:    { label: 'Titre',        hint: 'Section numérotée ou non', make: () => ({ text: 'Titre de section', size: 18, underline: true }) },
+  text:     { label: 'Paragraphe',   hint: 'Texte libre', make: () => ({ html: 'Bonjour {{PRENOM}},<br><br>Votre texte ici.', size: 14, align: 'left' }) },
+  callout:  { label: 'Encadré',      hint: 'Info / Attention / Succès / Erreur', make: () => ({ variant: 'warn', html: 'Point de vigilance à respecter.' }) },
+  steps:    { label: 'Étapes',       hint: 'Procédure numérotée', make: () => ({ steps: [ { title: 'Première étape', html: 'Description de l’action à réaliser.' }, { title: 'Deuxième étape', html: 'Description.' }, { title: 'Troisième étape', html: 'Description.' } ] }) },
+  button:   { label: 'Bouton',       hint: 'Lien cliquable (VML Outlook)', make: () => ({ label: 'Ouvrir le portail', url: 'https://', align: 'center', width: 220, height: 42, color: '', textColor: '#FFFFFF' }) },
+  image:    { label: 'Image',        hint: 'Capture, logo, illustration', make: () => ({ src: '', width: 540, alt: 'Capture d’écran', align: 'center', link: '' }) },
+  table:    { label: 'Tableau',      hint: 'Données, planning, contacts', make: () => ({ headers: ['Colonne 1', 'Colonne 2', 'Colonne 3'], rows: [ ['', '', ''], ['', '', ''] ], zebra: true }) },
+  columns:  { label: '2 colonnes',   hint: 'Texte côte à côte', make: () => ({ left: 'Colonne de gauche', right: 'Colonne de droite' }) },
+  divider:  { label: 'Séparateur',   hint: 'Ligne fine', make: () => ({ color: '#DDDDDD' }) },
+  spacer:   { label: 'Espace',       hint: 'Vide vertical', make: () => ({ height: 20 }) },
+  signature:{ label: 'Signature',    hint: 'Coordonnées + logo', make: () => ({ img: '', imgW: 90, imgAlt: 'Logo', html: '<b>Prénom NOM</b><br>Technicien support informatique<br>Société – Service Informatique<br>&#9742; 01 23 45 67 89 · <a href="mailto:support@domaine.fr">support@domaine.fr</a>' }) },
+  footer:   { label: 'Pied de page', hint: 'Mentions, contact', make: () => ({ html: 'Message automatique envoyé par le service informatique. Merci de ne pas y répondre.', bg: '#F2F2F2' }) }
+};
+
+/* ------------------------------------------------------- Nettoyage HTML */
+// Convertit le HTML produit par contenteditable en HTML « Outlook-safe »
+function cleanInline(html, opts = {}) {
+  const t = document.createElement('div');
+  t.innerHTML = html || '';
+  const rep = (from, to, attr) => t.querySelectorAll(from).forEach(el => {
+    const n = document.createElement(to); if (attr) attr(el, n);
+    while (el.firstChild) n.appendChild(el.firstChild); el.replaceWith(n);
+  });
+  rep('b', 'strong'); rep('i', 'em'); rep('strike', 's');
+  rep('font', 'span', (el, n) => { const c = el.getAttribute('color'); if (c) n.style.color = c; });
+  // <div> issus de la touche Entrée -> sauts de ligne
+  t.querySelectorAll('div').forEach(d => {
+    const frag = document.createDocumentFragment();
+    if (d.previousSibling) frag.appendChild(document.createElement('br'));
+    while (d.firstChild) frag.appendChild(d.firstChild);
+    d.replaceWith(frag);
+  });
+  t.querySelectorAll('p').forEach(p => { p.style.margin = '0 0 10px 0'; });
+  t.querySelectorAll('a').forEach(a => {
+    if (!a.style.color) a.style.color = opts.linkColor || doc.settings.color;
+    a.style.textDecoration = 'underline';
+    a.setAttribute('target', '_blank');
+  });
+  t.querySelectorAll('ul,ol').forEach(l => { l.style.margin = '6px 0 6px 0'; l.style.paddingLeft = '24px'; });
+  t.querySelectorAll('li').forEach(l => { l.style.margin = '0 0 4px 0'; });
+  t.querySelectorAll('*').forEach(el => {
+    ['contenteditable','data-field','data-id','class','id'].forEach(a => el.removeAttribute(a));
+    if (el.tagName === 'SPAN' && !el.getAttribute('style')) el.replaceWith(...el.childNodes);
+  });
+  // Nettoyage d'attributs de style non supportés par Outlook
+  t.querySelectorAll('[style]').forEach(el => {
+    const st = el.style;
+    ['position','float','display','flex','grid','transform','box-shadow','text-shadow','background-image'].forEach(p => st.removeProperty(p));
+    if (!el.getAttribute('style')) el.removeAttribute('style');
+  });
+  return t.innerHTML.replace(/^(<br\s*\/?>)+/i, '');
+}
+
+/* ------------------------------------------------------- Rendu des blocs */
+function renderBlock(b, edit) {
+  const S = doc.settings;
+  const FF = `font-family:${S.font},Arial,Helvetica,sans-serif;`;
+  const brand = S.color;
+  const v = p => edit ? (getPath(b, p) ?? '') : cleanInline(getPath(b, p) ?? '');
+  const df = p => edit ? ` data-field="${p}"` : '';
+  const PAD = '0 28px';
+  const T = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">`;
+  const imgTag = (src, w, alt, extra = '') => src
+    ? `<img src="${esc(src)}" width="${w}" alt="${esc(alt)}" style="display:block;border:0;outline:none;text-decoration:none;width:${w}px;max-width:100%;height:auto;${extra}">`
+    : (edit ? `<div class="ph" style="width:${w}px;max-width:100%">Image : indiquez un chemin ou une URL dans le panneau Propriétés</div>` : '');
+
+  switch (b.type) {
+    case 'header': {
+      const bg = b.useBrand || !b.bg ? brand : b.bg;
+      return `<tr><td bgcolor="${bg}" style="background-color:${bg};padding:22px 28px;">${T}<tr>` +
+        (b.logo ? `<td width="${b.logoW + 16}" valign="middle" style="padding-right:16px;">${imgTag(b.logo, b.logoW, b.logoAlt)}</td>` : '') +
+        `<td valign="middle" style="${FF}color:${b.color};"><div${df('title')} style="font-size:22px;line-height:28px;font-weight:bold;">${v('title')}</div>` +
+        `<div${df('subtitle')} style="font-size:14px;line-height:20px;padding-top:4px;">${v('subtitle')}</div></td></tr></table></td></tr>`;
+    }
+    case 'title':
+      return `<tr><td style="padding:18px 28px 6px 28px;"><div${df('text')} style="${FF}font-size:${b.size}px;line-height:${b.size + 6}px;font-weight:bold;color:${brand};${b.underline ? `border-bottom:2px solid ${brand};padding-bottom:4px;` : ''}">${v('text')}</div></td></tr>`;
+    case 'text':
+      return `<tr><td style="padding:8px 28px;"><div${df('html')} style="${FF}font-size:${b.size}px;line-height:${Math.round(b.size * 1.45)}px;color:${S.text};text-align:${b.align};">${v('html')}</div></td></tr>`;
+    case 'callout': {
+      const c = CALLOUT[b.variant] || CALLOUT.info;
+      return `<tr><td style="padding:8px 28px;">${T}<tr>` +
+        `<td width="5" bgcolor="${c.border}" style="background-color:${c.border};width:5px;font-size:0;line-height:0;">&nbsp;</td>` +
+        `<td bgcolor="${c.bg}" style="background-color:${c.bg};padding:12px 16px;${FF}font-size:14px;line-height:20px;color:${S.text};">` +
+        `<strong style="color:${c.border};">${c.icon} ${c.label} :</strong> <span${df('html')}>${v('html')}</span></td></tr></table></td></tr>`;
+    }
+    case 'steps': {
+      const n = b.steps.length;
+      const rows = b.steps.map((s, i) => `<tr>` +
+        `<td width="38" valign="top" style="padding:10px 0;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td width="28" height="28" align="center" valign="middle" bgcolor="${brand}" style="background-color:${brand};width:28px;height:28px;border-radius:14px;color:#ffffff;${FF}font-size:14px;font-weight:bold;">${i + 1}</td></tr></table></td>` +
+        `<td valign="top" style="padding:10px 0 10px 10px;${FF}font-size:14px;line-height:20px;color:${S.text};${i < n - 1 ? 'border-bottom:1px solid #E3E3E3;' : ''}">` +
+        `<div${df('steps.' + i + '.title')} style="font-weight:bold;color:${brand};padding-bottom:2px;">${v('steps.' + i + '.title')}</div>` +
+        `<div${df('steps.' + i + '.html')}>${v('steps.' + i + '.html')}</div></td></tr>`).join('');
+      return `<tr><td style="padding:6px 28px;">${T}${rows}</table></td></tr>`;
+    }
+    case 'button': {
+      const bg = b.color || brand;
+      const label = edit ? (b.label || '') : stripTags(b.label);
+      const url = b.url || '#';
+      if (edit) {
+        return `<tr><td align="${b.align}" style="padding:14px 28px;"><a href="javascript:void(0)" style="display:inline-block;width:${b.width}px;line-height:${b.height}px;background-color:${bg};color:${b.textColor};${FF}font-size:15px;font-weight:bold;text-align:center;text-decoration:none;border-radius:4px;"><span${df('label')}>${esc(label)}</span></a></td></tr>`;
+      }
+      return `<tr><td align="${b.align}" style="padding:14px 28px;">` +
+        `<!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${esc(url)}" style="height:${b.height}px;v-text-anchor:middle;width:${b.width}px;" arcsize="10%" strokecolor="${bg}" fillcolor="${bg}"><w:anchorlock/><center style="color:${b.textColor};${FF}font-size:15px;font-weight:bold;">${esc(label)}</center></v:roundrect><![endif]-->` +
+        `<!--[if !mso]><!--><a href="${esc(url)}" target="_blank" style="display:inline-block;width:${b.width}px;line-height:${b.height}px;background-color:${bg};color:${b.textColor};${FF}font-size:15px;font-weight:bold;text-align:center;text-decoration:none;border-radius:4px;mso-hide:all;">${esc(label)}</a><!--<![endif]--></td></tr>`;
+    }
+    case 'image': {
+      let img = imgTag(b.src, b.width, b.alt);
+      if (b.link && !edit && b.src) img = `<a href="${esc(b.link)}" target="_blank" style="text-decoration:none;">${img}</a>`;
+      return `<tr><td align="${b.align}" style="padding:10px 28px;">${img}</td></tr>`;
+    }
+    case 'table': {
+      const th = b.headers.map((h, j) => `<td bgcolor="${brand}" style="background-color:${brand};border:1px solid #BFBFBF;padding:7px 9px;${FF}font-size:13px;font-weight:bold;color:#ffffff;"><div${df('headers.' + j)}>${v('headers.' + j)}</div></td>`).join('');
+      const tr = b.rows.map((r, i) => `<tr>` + r.map((c, j) => `<td${b.zebra && i % 2 ? ' bgcolor="#F6F8FA"' : ''} style="${b.zebra && i % 2 ? 'background-color:#F6F8FA;' : ''}border:1px solid #BFBFBF;padding:6px 9px;${FF}font-size:13px;line-height:18px;color:${S.text};"><div${df('rows.' + i + '.' + j)}>${v('rows.' + i + '.' + j) || (edit ? '' : '&nbsp;')}</div></td>`).join('') + `</tr>`).join('');
+      return `<tr><td style="padding:10px 28px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;"><tr>${th}</tr>${tr}</table></td></tr>`;
+    }
+    case 'columns':
+      return `<tr><td style="padding:8px 28px;">${T}<tr>` +
+        `<td width="50%" valign="top" style="padding-right:10px;${FF}font-size:14px;line-height:20px;color:${S.text};"><div${df('left')}>${v('left')}</div></td>` +
+        `<td width="50%" valign="top" style="padding-left:10px;${FF}font-size:14px;line-height:20px;color:${S.text};"><div${df('right')}>${v('right')}</div></td></tr></table></td></tr>`;
+    case 'divider':
+      return `<tr><td style="padding:10px 28px;">${T}<tr><td height="1" bgcolor="${b.color}" style="background-color:${b.color};height:1px;font-size:0;line-height:0;">&nbsp;</td></tr></table></td></tr>`;
+    case 'spacer':
+      return `<tr><td height="${b.height}" style="height:${b.height}px;font-size:0;line-height:0;">&nbsp;</td></tr>`;
+    case 'signature':
+      return `<tr><td style="padding:18px 28px 12px 28px;border-top:1px solid #E3E3E3;">${T.replace('width="100%"', '')}<tr>` +
+        (b.img ? `<td valign="top" style="padding-right:14px;border-right:3px solid ${brand};">${imgTag(b.img, b.imgW, b.imgAlt)}</td>` : '') +
+        `<td valign="top" style="padding-left:${b.img ? 14 : 0}px;${FF}font-size:13px;line-height:19px;color:${S.text};"><div${df('html')}>${v('html')}</div></td></tr></table></td></tr>`;
+    case 'footer':
+      return `<tr><td bgcolor="${b.bg}" align="center" style="background-color:${b.bg};padding:14px 28px;${FF}font-size:11px;line-height:16px;color:#777777;"><div${df('html')}>${v('html')}</div></td></tr>`;
+  }
+  return '';
+}
+
+/* ------------------------------------------------------- Export complet */
+function buildHtml() {
+  const S = doc.settings;
+  const rows = doc.blocks.map(b => renderBlock(b, false)).join('\n');
+  const pre = S.preheader ? `<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">${esc(S.preheader)}</div>` : '';
+  return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" lang="fr">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>${esc(doc.name)}</title>
+<!--[if mso]>
+<xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>
+<style>table,td{font-family:${S.font},Arial,sans-serif !important;} a{text-decoration:underline;}</style>
+<![endif]-->
+<style type="text/css">
+  body{margin:0;padding:0;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;}
+  table{border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;}
+  img{border:0;line-height:100%;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;}
+  p{margin:0;}
+  a[x-apple-data-detectors]{color:inherit !important;text-decoration:none !important;}
+</style>
+</head>
+<body style="margin:0;padding:0;background-color:${S.bg};">
+${pre}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${S.bg}" style="background-color:${S.bg};">
+<tr><td align="center" style="padding:24px 10px;">
+<!--[if mso]><table role="presentation" width="${S.width}" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center" bgcolor="#FFFFFF" style="max-width:${S.width}px;background-color:#FFFFFF;">
+${rows}
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr>
+</table>
+</body>
+</html>`;
+}
+
+/* ------------------------------------------------------- Vérificateur */
+function audit(html) {
+  const out = [];
+  const add = (level, title, msg) => out.push({ level, title, msg });
+  const S = doc.settings;
+  if (!doc.blocks.length) add('warn', 'Mail vide', 'Ajoutez au moins un bloc.');
+  if (S.width > 640) add('warn', 'Largeur > 640 px', 'Outlook et les mobiles affichent mal au-delà de 600–640 px.');
+  if (!SAFE_FONTS.includes(S.font)) add('warn', 'Police non standard', `« ${S.font} » n'est pas installée partout ; Arial/Calibri sont sûres.`);
+  if (/background-image|url\(/i.test(html)) add('err', 'Image de fond', 'Outlook (moteur Word) ignore les images de fond CSS.');
+  if (/display\s*:\s*(flex|grid)|position\s*:\s*(absolute|fixed)|float\s*:/i.test(html)) add('err', 'CSS de mise en page', 'flex, grid, float et position ne sont pas supportés par Outlook.');
+  const imgs = html.match(/<img\b[^>]*>/gi) || [];
+  imgs.forEach(t => {
+    const src = (t.match(/src="([^"]*)"/i) || [])[1] || '';
+    if (/^data:/i.test(src)) add('err', 'Image en base64', 'Outlook bureau n\'affiche pas les images data:. Utilisez un chemin local (embarqué à l\'envoi) ou une URL https.');
+    else if (/^http:\/\//i.test(src)) add('warn', 'Image en http://', `Préférez https : ${src.slice(0, 60)}`);
+    if (!/\balt="[^"]+"/i.test(t)) add('warn', 'Image sans texte alternatif', 'Les images sont bloquées par défaut ; le texte alt reste visible.');
+    const w = parseInt((t.match(/\bwidth="(\d+)"/) || [])[1] || 0, 10);
+    if (w > S.width - 56) add('warn', 'Image trop large', `${w} px dépasse la zone utile (${S.width - 56} px) : Outlook ne réduit pas les images.`);
+  });
+  doc.blocks.forEach(b => {
+    if (b.type === 'button' && (!b.url || b.url === 'https://' || b.url === '#')) add('err', 'Bouton sans lien', `Le bouton « ${stripTags(b.label)} » n'a pas d'URL.`);
+    if (b.type === 'image' && !b.src) add('warn', 'Image sans source', 'Le bloc image est vide.');
+  });
+  const txt = stripTags(html);
+  if (/\[[^\]\n]{2,60}\]/.test(txt)) add('warn', 'Texte à compléter', 'Des crochets [ … ] subsistent dans le contenu.');
+  const noBtn = html.replace(/<!--\[if !mso\]><!-->[\s\S]*?<!--<!\[endif\]-->/g, '');
+  if (/<a\s[^>]*href="(#|https?:\/\/)?"/i.test(noBtn)) add('err', 'Lien vide', 'Un lien du texte a une URL vide ou incomplète.');
+  const vars = txt.match(/\{\{\s*[A-Z_]+\s*\}\}/g);
+  if (vars) {
+    const unknown = [...new Set(vars)].filter(x => !/\{\{\s*(PRENOM|NOM|NOMCOMPLET|EMAIL|DATE|HEURE)\s*\}\}/.test(x));
+    add('info', 'Variables détectées', [...new Set(vars)].join(' ') + ' — remplacées à l\'envoi par Mail-Campaign-Tool.');
+    if (unknown.length) add('warn', 'Variable inconnue', unknown.join(' ') + ' ne sera pas remplacée.');
+  }
+  const kb = new Blob([html]).size / 1024;
+  if (kb > 100) add('warn', 'Mail volumineux', `${kb.toFixed(0)} Ko : Gmail tronque au-delà de 102 Ko.`);
+  if (/<script|<link\s/i.test(html)) add('err', 'Script ou CSS externe', 'Supprimés par tous les clients mail.');
+  if (!S.preheader) add('info', 'Pas de pré-en-tête', 'Facultatif : une ligne de résumé améliore la lecture dans la liste des messages.');
+  let score = 100; out.forEach(i => { score -= i.level === 'err' ? 15 : i.level === 'warn' ? 5 : 0; });
+  return { issues: out, score: Math.max(0, score), kb };
+}
+
+/* ------------------------------------------------------- Rendu UI */
+function renderCanvas() {
+  const c = $('#canvas');
+  c.style.width = doc.settings.width + 'px';
+  $('#canvasWrap').style.background = doc.settings.bg;
+  if (!doc.blocks.length) {
+    c.innerHTML = `<div id="canvasEmpty"><b>Le mail est vide</b>Ajoutez des blocs depuis la colonne de gauche ou partez d'un modèle prêt.</div>`;
+    return;
+  }
+  const rows = doc.blocks.map(b => `<tbody class="blk${b.id === selectedId ? ' sel' : ''}" data-id="${b.id}">${renderBlock(b, true)}
+    <tr class="toolsRow"><td style="padding:0;height:0;position:relative;"><div class="tools">
+      <button title="Monter" data-act="up">▲</button><button title="Descendre" data-act="down">▼</button>
+      <button title="Dupliquer" data-act="dup">⧉</button><button title="Supprimer" data-act="del" class="danger">✕</button></div></td></tr></tbody>`).join('');
+  c.innerHTML = `<table width="100%" cellpadding="0" cellspacing="0" border="0">${rows}</table>`;
+  c.querySelectorAll('[data-field]').forEach(el => {
+    el.setAttribute('contenteditable', 'true');
+    el.spellcheck = true;
+    el.addEventListener('input', onFieldInput);
+    el.addEventListener('focus', () => { lastFocusedField = el; const id = el.closest('.blk').dataset.id; if (id !== selectedId) selectBlock(id, false); });
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        const n = document.getSelection()?.anchorNode; const inList = !!(n && (n.nodeType === 1 ? n : n.parentElement)?.closest('li'));
+        if (!inList) { e.preventDefault(); document.execCommand('insertLineBreak'); }
+      }
+    });
+    el.addEventListener('paste', e => {
+      e.preventDefault();
+      const t = (e.clipboardData || window.clipboardData).getData('text/plain');
+      document.execCommand('insertText', false, t);
+    });
+  });
+}
+let inputTimer = null;
+function onFieldInput(e) {
+  const el = e.target, id = el.closest('.blk').dataset.id, b = doc.blocks.find(x => x.id === id);
+  if (!b) return;
+  setPath(b, el.dataset.field, el.innerHTML);
+  clearTimeout(inputTimer);
+  inputTimer = setTimeout(() => { snapshot = JSON.stringify(doc); refreshOutputs(); autosave(); }, 400);
+}
+function renderStructure() {
+  const ul = $('#structure');
+  if (!doc.blocks.length) { ul.innerHTML = '<li class="empty">Aucun bloc</li>'; return; }
+  ul.innerHTML = doc.blocks.map(b => {
+    const lab = BLOCKS[b.type].label;
+    const txt = stripTags(b.title || b.text || b.label || b.html || (b.steps ? b.steps[0]?.title : '') || b.left || (b.headers ? b.headers.join(' | ') : '') || b.alt || '').slice(0, 40);
+    return `<li draggable="true" data-id="${b.id}" class="${b.id === selectedId ? 'sel' : ''}"><span class="grip">⋮⋮</span><span class="t"><b>${lab}</b>${txt ? ' · ' + esc(txt) : ''}</span></li>`;
+  }).join('');
+}
+function renderPalette() {
+  $('#palette').innerHTML = Object.entries(BLOCKS).map(([k, d]) => `<button data-type="${k}"><b>${d.label}</b><span>${d.hint}</span></button>`).join('');
+}
+function renderSettings() {
+  const S = doc.settings;
+  $('#docName').value = doc.name;
+  $('#sWidth').value = S.width; $('#sFont').value = S.font;
+  $('#sColor').value = S.color; $('#sColorTxt').value = S.color;
+  $('#sText').value = S.text; $('#sTextTxt').value = S.text;
+  $('#sBg').value = S.bg; $('#sBgTxt').value = S.bg;
+  $('#sPreheader').value = S.preheader;
+}
+
+/* ---- Panneau propriétés ---- */
+const PROPS = {
+  header: [ ['title','Titre','text'], ['subtitle','Sous-titre','text'], ['useBrand','Utiliser la couleur principale','check'], ['bg','Couleur de fond personnalisée','color'], ['color','Couleur du texte','color'], ['logo','Logo (chemin ou URL)','image'], ['logoW','Largeur du logo (px)','number'], ['logoAlt','Texte alternatif du logo','text'] ],
+  title:  [ ['text','Texte','text'], ['size','Taille (px)','number'], ['underline','Souligner','check'] ],
+  text:   [ ['size','Taille du texte (px)','number'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite','justify|Justifié']] ],
+  callout:[ ['variant','Type','select',['info|Information (bleu)','warn|Attention (orange)','ok|Succès (vert)','err|Erreur (rouge)']] ],
+  steps:  [],
+  button: [ ['label','Texte du bouton','text'], ['url','Lien (https://… ou mailto:)','text'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite']], ['width','Largeur (px)','number'], ['height','Hauteur (px)','number'], ['color','Couleur de fond (vide = principale)','color'], ['textColor','Couleur du texte','color'] ],
+  image:  [ ['src','Chemin ou URL de l\'image','image'], ['width','Largeur (px)','number'], ['alt','Texte alternatif','text'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite']], ['link','Lien au clic (facultatif)','text'] ],
+  table:  [ ['zebra','Lignes alternées','check'] ],
+  columns:[],
+  divider:[ ['color','Couleur','color'] ],
+  spacer: [ ['height','Hauteur (px)','number'] ],
+  signature:[ ['img','Logo / photo (chemin ou URL)','image'], ['imgW','Largeur (px)','number'], ['imgAlt','Texte alternatif','text'] ],
+  footer: [ ['bg','Couleur de fond','color'] ]
+};
+function renderProps() {
+  const body = $('#propsBody');
+  const b = doc.blocks.find(x => x.id === selectedId);
+  if (!b) { body.innerHTML = `<div class="title">Aucun bloc sélectionné</div><div class="sub">Cliquez sur un bloc du mail ou dans la structure.</div><div class="note">Les textes se modifient directement dans le mail. Ce panneau règle les options du bloc sélectionné (couleurs, tailles, liens, images).</div>`; return; }
+  const def = BLOCKS[b.type];
+  let h = `<div class="title">${def.label}</div><div class="sub">${def.hint}</div>`;
+  for (const [key, label, type, opts] of PROPS[b.type]) {
+    const val = b[key];
+    h += `<label>${label}</label>`;
+    if (type === 'text') h += `<input type="text" data-key="${key}" value="${esc(val)}">`;
+    else if (type === 'number') h += `<input type="number" data-key="${key}" value="${val}">`;
+    else if (type === 'check') h += `<div class="row"><input type="checkbox" data-key="${key}" ${val ? 'checked' : ''} style="width:auto;flex:0"><span style="color:var(--muted);font-size:12px">${val ? 'Oui' : 'Non'}</span></div>`;
+    else if (type === 'color') h += `<div class="row"><input type="color" data-key="${key}" data-color="1" value="${/^#[0-9a-f]{6}$/i.test(val) ? val : '#000000'}"><input type="text" data-key="${key}" value="${esc(val)}" placeholder="#RRGGBB"></div>`;
+    else if (type === 'select') h += `<select data-key="${key}">${opts.map(o => { const [v, l] = o.split('|'); return `<option value="${v}" ${v == val ? 'selected' : ''}>${l}</option>`; }).join('')}</select>`;
+    else if (type === 'image') h += `<div class="row"><input type="text" data-key="${key}" value="${esc(val)}" placeholder="C:\\Images\\capture.png ou https://…"><button class="sm" data-pick="${key}">Fichier…</button></div><div class="kv">Chemin local : embarqué à l'envoi par l'outil PowerShell. URL https : doit rester accessible.</div>`;
+  }
+  if (b.type === 'steps') h += `<div class="btnrow"><button data-step="add">+ Ajouter une étape</button><button data-step="del" ${b.steps.length < 2 ? 'disabled' : ''}>– Retirer la dernière</button></div>`;
+  if (b.type === 'table') h += `<div class="btnrow"><button data-tbl="addRow">+ Ligne</button><button data-tbl="delRow" ${b.rows.length < 2 ? 'disabled' : ''}>– Ligne</button><button data-tbl="addCol">+ Colonne</button><button data-tbl="delCol" ${b.headers.length < 2 ? 'disabled' : ''}>– Colonne</button></div>`;
+  h += `<hr><div class="btnrow"><button data-act="up">▲ Monter</button><button data-act="down">▼ Descendre</button><button data-act="dup">Dupliquer</button><button data-act="del" class="danger">Supprimer</button></div>`;
+  body.innerHTML = h;
+}
+$('#propsBody').addEventListener('input', e => {
+  const b = doc.blocks.find(x => x.id === selectedId); if (!b) return;
+  const el = e.target, key = el.dataset.key; if (!key) return;
+  let val = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value;
+  if (el.dataset.color) { const twin = el.parentElement.querySelector('input[type=text]'); if (twin) twin.value = val; }
+  else if (el.type === 'text' && el.parentElement.querySelector('input[type=color]')) { const cp = el.parentElement.querySelector('input[type=color]'); if (/^#[0-9a-f]{6}$/i.test(val)) cp.value = val; }
+  b[key] = val;
+  commit({ canvas: true, structure: true, props: el.type === 'checkbox' });
+});
+$('#propsBody').addEventListener('click', e => {
+  const btn = e.target.closest('button'); if (!btn) return;
+  const b = doc.blocks.find(x => x.id === selectedId);
+  if (btn.dataset.act) return blockAction(selectedId, btn.dataset.act);
+  if (!b) return;
+  if (btn.dataset.pick) return pickImage(v => { b[btn.dataset.pick] = v; commit({ canvas: true, props: true }); });
+  if (btn.dataset.step === 'add') b.steps.push({ title: 'Nouvelle étape', html: 'Description.' });
+  if (btn.dataset.step === 'del') b.steps.pop();
+  if (btn.dataset.tbl === 'addRow') b.rows.push(b.headers.map(() => ''));
+  if (btn.dataset.tbl === 'delRow') b.rows.pop();
+  if (btn.dataset.tbl === 'addCol') { b.headers.push('Colonne'); b.rows.forEach(r => r.push('')); }
+  if (btn.dataset.tbl === 'delCol') { b.headers.pop(); b.rows.forEach(r => r.pop()); }
+  commit({ canvas: true, structure: true, props: true });
+});
+function pickImage(cb) {
+  const inp = $('#fileImg');
+  inp.onchange = () => {
+    const f = inp.files[0]; inp.value = ''; if (!f) return;
+    // On ne peut pas connaître le chemin complet depuis le navigateur : on propose le nom, à compléter.
+    const p = prompt("Le navigateur ne fournit pas le chemin complet. Indiquez le chemin où se trouve l'image (dossier + nom) :", 'C:\\Images\\' + f.name);
+    if (p) cb(p);
+  };
+  inp.click();
+}
+
+/* ------------------------------------------------------- Actions blocs */
+function addBlock(type) {
+  const b = Object.assign({ id: uid(), type }, BLOCKS[type].make());
+  const idx = selectedId ? doc.blocks.findIndex(x => x.id === selectedId) + 1 : doc.blocks.length;
+  doc.blocks.splice(idx, 0, b);
+  selectedId = b.id;
+  commit({ canvas: true, structure: true, props: true });
+  const el = $(`.blk[data-id="${b.id}"]`); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+function blockAction(id, act) {
+  const i = doc.blocks.findIndex(x => x.id === id); if (i < 0) return;
+  if (act === 'up' && i > 0) [doc.blocks[i - 1], doc.blocks[i]] = [doc.blocks[i], doc.blocks[i - 1]];
+  if (act === 'down' && i < doc.blocks.length - 1) [doc.blocks[i + 1], doc.blocks[i]] = [doc.blocks[i], doc.blocks[i + 1]];
+  if (act === 'dup') { const c = clone(doc.blocks[i]); c.id = uid(); doc.blocks.splice(i + 1, 0, c); selectedId = c.id; }
+  if (act === 'del') { doc.blocks.splice(i, 1); selectedId = doc.blocks[Math.min(i, doc.blocks.length - 1)]?.id || null; }
+  commit({ canvas: true, structure: true, props: true });
+}
+function selectBlock(id, rerenderCanvas = true) {
+  selectedId = id;
+  if (rerenderCanvas) renderCanvas();
+  else $$('.blk').forEach(el => el.classList.toggle('sel', el.dataset.id === id));
+  renderStructure(); renderProps();
+  showTab('props');
+}
+function commit(o = {}) {
+  pushHistory();
+  if (o.canvas) renderCanvas();
+  if (o.structure) renderStructure();
+  if (o.props) renderProps();
+  refreshOutputs(); autosave();
+}
+function pushHistory() { if (snapshot) history.push(snapshot); snapshot = JSON.stringify(doc); if (history.length > 60) history.shift(); $('#btnUndo').disabled = history.length < 1; }
+function undo() {
+  if (!history.length) return;
+  doc = JSON.parse(history.pop()); snapshot = JSON.stringify(doc);
+  if (!doc.blocks.find(b => b.id === selectedId)) selectedId = null;
+  renderAll(); autosave(); $('#btnUndo').disabled = !history.length;
+}
+function renderAll() { renderSettings(); renderCanvas(); renderStructure(); renderProps(); refreshOutputs(); }
+function refreshOutputs() {
+  const html = buildHtml();
+  $('#htmlOut').value = html;
+  const a = audit(html);
+  $('#htmlInfo').textContent = `${a.kb.toFixed(1)} Ko · ${doc.blocks.length} bloc(s) · ${(html.match(/<img\b/g) || []).length} image(s)`;
+  const cls = a.score >= 90 ? 'ok' : a.score >= 70 ? 'warn' : 'err';
+  $('#checkBody').innerHTML = `<div class="score"><div class="n ${cls}">${a.score}</div><div><b>Conformité Outlook</b><br><small>${a.issues.filter(i => i.level === 'err').length} bloquant(s), ${a.issues.filter(i => i.level === 'warn').length} avertissement(s)</small></div></div>` +
+    (a.issues.length ? `<ul class="issues">${a.issues.map(i => `<li class="${i.level}"><b>${esc(i.title)}</b>${esc(i.msg)}</li>`).join('')}</ul>` : `<div class="note">Aucun problème détecté. Le HTML est en tableaux imbriqués, styles en ligne, bouton VML, largeur fixe ${doc.settings.width} px.</div>`) +
+    `<hr><div class="kv"><b>Ce que garantit l'export :</b><br>• mise en page 100 % tableaux (pas de div/flex)<br>• tous les styles en ligne, couleurs aussi en attribut bgcolor<br>• bouton dessiné en VML pour Outlook bureau<br>• conteneur forcé à ${doc.settings.width} px via commentaire conditionnel MSO<br>• polices avec repli Arial, images avec largeur explicite<br>• DOCTYPE XHTML + espaces de noms VML/Office</div>`;
+  const tabBtn = $('.tabs button[data-tab=check]');
+  tabBtn.textContent = `Conformité ${a.score}`;
+}
+
+/* ------------------------------------------------------- Mise en forme */
+function saveSel() { const s = document.getSelection(); if (s && s.rangeCount) savedRange = s.getRangeAt(0).cloneRange(); }
+function restoreSel() { if (!savedRange) return; const s = document.getSelection(); s.removeAllRanges(); s.addRange(savedRange); }
+document.addEventListener('selectionchange', () => { const a = document.activeElement; if (a && a.closest && a.closest('#canvas [contenteditable]')) saveSel(); });
+$('#fmtbar').addEventListener('mousedown', e => { if (e.target.closest('button,select,input')) e.preventDefault(); });
+$('#fmtbar').addEventListener('click', e => {
+  const btn = e.target.closest('button'); if (!btn) return;
+  if (!lastFocusedField) return toast('Cliquez d’abord dans un texte du mail.');
+  lastFocusedField.focus(); restoreSel();
+  if (btn.dataset.cmd) document.execCommand(btn.dataset.cmd, false, btn.dataset.val || null);
+  if (btn.id === 'fmtColorBtn') document.execCommand('foreColor', false, $('#fmtColor').value);
+  if (btn.id === 'fmtLink') {
+    const cur = document.getSelection()?.anchorNode?.parentElement?.closest('a');
+    const url = prompt('Adresse du lien (https://…, mailto:…) :', cur ? cur.getAttribute('href') : 'https://');
+    if (url) {
+      if (document.getSelection().isCollapsed && !cur) document.execCommand('insertHTML', false, `<a href="${esc(url)}">${esc(url)}</a>`);
+      else document.execCommand('createLink', false, url);
+    }
+  }
+  lastFocusedField.dispatchEvent(new Event('input', { bubbles: true }));
+});
+$('#fmtColor').addEventListener('input', () => { if (lastFocusedField) { lastFocusedField.focus(); restoreSel(); document.execCommand('foreColor', false, $('#fmtColor').value); lastFocusedField.dispatchEvent(new Event('input', { bubbles: true })); } });
+$('#fmtVar').addEventListener('change', e => {
+  const v = e.target.value; e.target.value = ''; if (!v || !lastFocusedField) return;
+  lastFocusedField.focus(); restoreSel(); document.execCommand('insertText', false, v);
+  lastFocusedField.dispatchEvent(new Event('input', { bubbles: true }));
+});
+
+/* ------------------------------------------------------- Événements UI */
+$('#palette').addEventListener('click', e => { const b = e.target.closest('button'); if (b) addBlock(b.dataset.type); });
+$('#canvas').addEventListener('click', e => {
+  const tb = e.target.closest('.tools button');
+  if (tb) { e.preventDefault(); return blockAction(tb.closest('.blk').dataset.id, tb.dataset.act); }
+  const blk = e.target.closest('.blk');
+  if (blk && blk.dataset.id !== selectedId) selectBlock(blk.dataset.id, false);
+});
+$('#structure').addEventListener('click', e => {
+  const li = e.target.closest('li[data-id]'); if (!li) return;
+  selectBlock(li.dataset.id, false);
+  const el = $(`.blk[data-id="${li.dataset.id}"]`); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+});
+// Glisser-déposer dans la structure
+let dragId = null;
+$('#structure').addEventListener('dragstart', e => { const li = e.target.closest('li[data-id]'); if (!li) return; dragId = li.dataset.id; e.dataTransfer.effectAllowed = 'move'; });
+$('#structure').addEventListener('dragover', e => { const li = e.target.closest('li[data-id]'); if (!li || li.dataset.id === dragId) return; e.preventDefault(); $$('#structure li').forEach(x => x.classList.remove('dragover')); li.classList.add('dragover'); });
+$('#structure').addEventListener('dragleave', e => { e.target.closest('li')?.classList.remove('dragover'); });
+$('#structure').addEventListener('drop', e => {
+  e.preventDefault(); const li = e.target.closest('li[data-id]'); $$('#structure li').forEach(x => x.classList.remove('dragover'));
+  if (!li || !dragId || li.dataset.id === dragId) return;
+  const from = doc.blocks.findIndex(b => b.id === dragId); const [m] = doc.blocks.splice(from, 1);
+  const to = doc.blocks.findIndex(b => b.id === li.dataset.id); doc.blocks.splice(to, 0, m);
+  selectedId = m.id; dragId = null; commit({ canvas: true, structure: true, props: true });
+});
+$$('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+function showTab(t) { $$('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t)); $$('.tabpane').forEach(p => p.classList.toggle('on', p.id === t)); }
+// Réglages
+const bindSetting = (id, key, transform = v => v, twin = null) => $(id).addEventListener('input', e => {
+  const v = transform(e.target.value); if (v === undefined) return;
+  doc.settings[key] = v; if (twin) $(twin).value = v; commit({ canvas: true });
+});
+bindSetting('#sWidth', 'width', v => Math.min(800, Math.max(480, Number(v) || 600)));
+bindSetting('#sFont', 'font');
+bindSetting('#sColor', 'color', v => v, '#sColorTxt'); bindSetting('#sColorTxt', 'color', v => /^#[0-9a-f]{6}$/i.test(v) ? v : undefined, '#sColor');
+bindSetting('#sText', 'text', v => v, '#sTextTxt'); bindSetting('#sTextTxt', 'text', v => /^#[0-9a-f]{6}$/i.test(v) ? v : undefined, '#sText');
+bindSetting('#sBg', 'bg', v => v, '#sBgTxt'); bindSetting('#sBgTxt', 'bg', v => /^#[0-9a-f]{6}$/i.test(v) ? v : undefined, '#sBg');
+bindSetting('#sPreheader', 'preheader');
+$('#docName').addEventListener('input', e => { doc.name = e.target.value; autosave(); refreshOutputs(); });
+$('#btnUndo').addEventListener('click', undo);
+document.addEventListener('keydown', e => {
+  const inEdit = document.activeElement && (document.activeElement.isContentEditable || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
+  if (e.ctrlKey && e.key.toLowerCase() === 'z' && !inEdit) { e.preventDefault(); undo(); }
+  if (e.key === 'Delete' && !inEdit && selectedId) { e.preventDefault(); blockAction(selectedId, 'del'); }
+  if (e.key === 'Escape') $('#previewModal').classList.remove('on');
+});
+$('#btnNew').addEventListener('click', () => { if (!doc.blocks.length || confirm('Créer un nouveau modèle vide ? Le modèle courant reste dans l’historique (Annuler).')) { doc = defaultDoc(); selectedId = null; pushHistory(); renderAll(); autosave(); } });
+
+/* ------------------------------------------------------- Export / import */
+function download(name, content, type = 'text/html;charset=utf-8') {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([content], { type })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+const safeName = () => (doc.name || 'modele').replace(/[^\w\-àâäéèêëîïôöùûüç ]/gi, '').trim().replace(/\s+/g, '_') || 'modele';
+const dl = () => { download(safeName() + '.html', buildHtml()); toast('Fichier HTML téléchargé'); };
+$('#btnDownload').addEventListener('click', dl); $('#btnDownload2').addEventListener('click', dl);
+const copyHtml = async () => { try { await navigator.clipboard.writeText(buildHtml()); toast('HTML copié dans le presse-papier'); } catch { $('#htmlOut').select(); document.execCommand('copy'); toast('HTML copié'); } };
+$('#btnCopyHtml').addEventListener('click', copyHtml); $('#btnCopyHtml2').addEventListener('click', copyHtml);
+$('#btnCopyOutlook').addEventListener('click', async () => {
+  const html = buildHtml();
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([stripTags(html)], { type: 'text/plain' }) })]);
+    toast('Rendu copié : collez-le (Ctrl+V) dans un nouveau message Outlook');
+  } catch { toast('Copie riche impossible dans ce navigateur : utilisez « Copier le HTML »'); }
+});
+$('#btnExportJson').addEventListener('click', () => { download(safeName() + '.json', JSON.stringify(doc, null, 2), 'application/json'); toast('Modèle enregistré (.json)'); });
+$('#btnImport').addEventListener('click', () => $('#fileJson').click());
+$('#fileJson').addEventListener('change', () => {
+  const f = $('#fileJson').files[0]; $('#fileJson').value = ''; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => { try { loadDoc(JSON.parse(r.result)); toast('Modèle ouvert'); } catch { toast('Fichier invalide : ce n’est pas un modèle JSON de cet outil'); } };
+  r.readAsText(f, 'utf-8');
+});
+function loadDoc(d) {
+  if (!d || !Array.isArray(d.blocks)) throw new Error('bad');
+  doc = Object.assign(defaultDoc(), d); doc.settings = Object.assign(defaultDoc().settings, d.settings || {});
+  doc.blocks = doc.blocks.filter(b => BLOCKS[b.type]).map(b => Object.assign({ id: uid() }, BLOCKS[b.type].make(), b));
+  selectedId = null; pushHistory(); renderAll(); autosave();
+}
+
+/* ------------------------------------------------------- Aperçu */
+$('#btnPreview').addEventListener('click', () => { $('#previewFrame').srcdoc = buildHtml(); $('#previewModal').classList.add('on'); });
+$('#previewClose').addEventListener('click', () => $('#previewModal').classList.remove('on'));
+$('#previewModal').addEventListener('click', e => { if (e.target.id === 'previewModal') e.currentTarget.classList.remove('on'); });
+$$('#previewModal [data-w]').forEach(b => b.addEventListener('click', () => { $('#previewFrame').style.width = b.dataset.w; }));
+
+/* ------------------------------------------------------- Stockage local */
+const LS_AUTO = 'mailtpl:autosave', LS_LIB = 'mailtpl:library';
+function autosave() { try { localStorage.setItem(LS_AUTO, JSON.stringify(doc)); } catch { } }
+function getLib() { try { return JSON.parse(localStorage.getItem(LS_LIB) || '[]'); } catch { return []; } }
+function setLib(l) { try { localStorage.setItem(LS_LIB, JSON.stringify(l)); } catch { toast('Stockage local indisponible : utilisez Enregistrer (.json)'); } renderLib(); }
+function renderLib() {
+  const lib = getLib();
+  $('#libList').innerHTML = lib.length ? lib.map((m, i) => `<li><span class="t"><b>${esc(m.name)}</b><br><small style="color:var(--muted)">${m.date} · ${m.doc.blocks.length} bloc(s)</small></span><button class="sm" data-load="${i}">Ouvrir</button><button class="sm danger" data-del="${i}">✕</button></li>`).join('') : '<li class="empty" style="color:var(--muted)">Aucun modèle enregistré</li>';
+}
+$('#libSave').addEventListener('click', () => {
+  const name = $('#libName').value.trim() || doc.name || 'Modèle';
+  const lib = getLib().filter(m => m.name !== name);
+  lib.unshift({ name, date: new Date().toLocaleDateString('fr-FR'), doc: clone(doc) });
+  setLib(lib); $('#libName').value = ''; toast(`« ${name} » enregistré`);
+});
+$('#libList').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return; const lib = getLib();
+  if (b.dataset.load != null) { loadDoc(lib[+b.dataset.load].doc); toast('Modèle ouvert'); }
+  if (b.dataset.del != null && confirm(`Supprimer « ${lib[+b.dataset.del].name} » ?`)) { lib.splice(+b.dataset.del, 1); setLib(lib); }
+});
+
+/* ------------------------------------------------------- Modèles prêts */
+function mk(type, props) { return Object.assign({ id: uid(), type }, BLOCKS[type].make(), props); }
+const STARTERS = {
+  'Procédure pas à pas': () => ({ name: 'Procédure', settings: { preheader: 'Procédure à suivre – 5 minutes' }, blocks: [
+    mk('header', { title: 'Procédure – [Titre]', subtitle: 'Référence PROC-IT-001 · {{DATE}}' }),
+    mk('text', { html: 'Bonjour {{PRENOM}},<br><br>Veuillez trouver ci-dessous la procédure à suivre pour <b>[objectif]</b>. Durée estimée : 5 minutes.' }),
+    mk('title', { text: '1. Prérequis' }),
+    mk('text', { html: '<ul><li>[Prérequis 1]</li><li>[Prérequis 2]</li></ul>' }),
+    mk('title', { text: '2. Étapes à suivre' }),
+    mk('steps', {}),
+    mk('callout', { variant: 'warn', html: '[Action irréversible, point de vigilance]' }),
+    mk('title', { text: '3. Vérification' }),
+    mk('text', { html: '[Comment vérifier que l’opération a réussi.]' }),
+    mk('callout', { variant: 'info', html: 'En cas de difficulté, contactez le support : <a href="mailto:support@domaine.fr">support@domaine.fr</a> – 01 23 45 67 89.' }),
+    mk('signature', {}), mk('footer', {}) ] }),
+  'Information / communication IT': () => ({ name: 'Information IT', settings: { color: '#2E75B6' }, blocks: [
+    mk('header', { title: 'Information – [Sujet]', subtitle: 'Service informatique' }),
+    mk('text', { html: 'Bonjour {{PRENOM}},<br><br>Le service informatique vous informe que <b>[nouveauté / changement]</b> à compter du <b>[date]</b>.' }),
+    mk('title', { text: 'Ce qui change pour vous' }),
+    mk('text', { html: '<ul><li>[Changement 1]</li><li>[Changement 2]</li></ul>' }),
+    mk('title', { text: 'Ce que vous devez faire' }),
+    mk('text', { html: '[Action attendue, avant le …]' }),
+    mk('button', { label: 'Accéder au portail', url: 'https://' }),
+    mk('callout', { variant: 'info', html: '[Précision utile, bon à savoir]' }),
+    mk('signature', {}), mk('footer', {}) ] }),
+  'Maintenance planifiée': () => ({ name: 'Maintenance', settings: { color: '#C00000' }, blocks: [
+    mk('header', { title: 'Maintenance planifiée – [Service]', subtitle: 'Interruption prévue' }),
+    mk('table', { headers: ['Début', 'Fin prévue', 'Impact'], rows: [['[JJ/MM à HHhMM]', '[JJ/MM à HHhMM]', '[Interruption totale]']], zebra: false }),
+    mk('text', { html: 'Bonjour {{PRENOM}},<br><br>Une opération de maintenance est planifiée sur <b>[service]</b>. Pendant cette période, [description de l’impact].' }),
+    mk('callout', { variant: 'err', html: 'Enregistrez vos travaux et fermez vos sessions avant le début de l’intervention.' }),
+    mk('text', { html: 'Nous vous prions de nous excuser pour la gêne occasionnée.' }),
+    mk('signature', {}), mk('footer', {}) ] }),
+  'Sensibilisation sécurité': () => ({ name: 'Sécurité', settings: { color: '#385723' }, blocks: [
+    mk('header', { title: 'Sécurité – [Phishing, mots de passe, MFA]', subtitle: 'Les bons réflexes' }),
+    mk('text', { html: 'Bonjour {{PRENOM}},<br><br>[Contexte : campagne de phishing en cours, rappel des bonnes pratiques.]' }),
+    mk('steps', { steps: [
+      { title: 'Vérifiez l’expéditeur', html: 'Regardez l’adresse complète, pas seulement le nom affiché.' },
+      { title: 'Ne cliquez pas sur un lien suspect', html: 'Survolez-le pour voir la destination réelle.' },
+      { title: 'Ne communiquez jamais votre mot de passe', html: 'Même au service informatique.' },
+      { title: 'En cas de doute, signalez', html: 'Transférez le mail à <a href="mailto:securite@domaine.fr">securite@domaine.fr</a>.' } ] }),
+    mk('callout', { variant: 'ok', html: 'Le service informatique ne vous demandera jamais vos identifiants par mail.' }),
+    mk('signature', {}), mk('footer', {}) ] })
+};
+Object.keys(STARTERS).forEach(k => { const o = document.createElement('option'); o.value = k; o.textContent = k; $('#selTemplate').appendChild(o); });
+$('#selTemplate').addEventListener('change', e => {
+  const k = e.target.value; e.target.value = ''; if (!k) return;
+  if (doc.blocks.length && !confirm('Remplacer le modèle courant par « ' + k + ' » ?')) return;
+  const d = STARTERS[k](); loadDoc(d); toast('Modèle « ' + k + ' » chargé');
+});
+
+/* ------------------------------------------------------- Divers */
+let toastTimer;
+function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 2600); }
+
+/* ------------------------------------------------------- Démarrage */
+renderPalette(); renderLib();
+try { const s = localStorage.getItem(LS_AUTO); if (s) { doc = JSON.parse(s); doc = Object.assign(defaultDoc(), doc); } } catch { }
+renderAll();
+snapshot = JSON.stringify(doc);
+$('#btnUndo').disabled = true;
+</script>
+</body>
+</html>
