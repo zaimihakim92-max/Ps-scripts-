@@ -189,8 +189,8 @@
     <div class="section">
       <h2>Réglages généraux</h2>
       <label>Largeur du mail (px)</label>
-      <div class="row"><input type="number" id="sWidth" min="320" max="1400" step="10"><button class="sm" id="sW600" title="Largeur standard">600</button><button class="sm" id="sW800" title="Large">800</button></div>
-      <div class="row" style="margin-top:6px"><input type="checkbox" id="sFluid" style="width:auto;flex:0"><span style="color:var(--muted);font-size:12px">Largeur fluide (s'adapte à la fenêtre, plafonnée à la largeur ci-dessus)</span></div>
+      <div class="row"><input type="number" id="sWidth" min="320" max="1400" step="10"><button class="sm" data-w="600">600</button><button class="sm" data-w="800">800</button><button class="sm" data-w="1000">1000</button></div>
+      <div class="row" style="margin-top:6px"><input type="checkbox" id="sFluid" style="width:auto;flex:0"><span style="color:var(--muted);font-size:12px">Largeur fluide : le mail occupe toute la largeur du volet de lecture Outlook (plafonnée à la valeur ci-dessus dans les autres clients)</span></div>
       <label>Marges intérieures des blocs (px)</label>
       <input type="number" id="sPad" min="0" max="80" step="2">
       <label>Langue du contenu (libellés Information / Attention, légendes, modèles prêts)</label>
@@ -280,6 +280,7 @@
       <button class="sm" data-w="100%">Bureau</button>
       <button class="sm" data-w="600px">600 px</button>
       <button class="sm" data-w="380px">Mobile</button>
+      <button class="sm" id="previewDark" title="Simulation approximative de l'inversion des couleurs d'Outlook en mode sombre">Mode sombre</button>
       <button class="sm" id="previewClose">Fermer</button>
     </div>
     <div class="frameWrap"><iframe id="previewFrame" title="Aperçu du mail" style="width:100%"></iframe></div>
@@ -376,6 +377,7 @@ const BLOCKS = {
   steps:    { label: 'Étapes',       hint: 'Procédure numérotée', make: () => ({ numbering: 'number', start: 1, shape: 'round', size: 28, badgeColor: '', badgeText: '#FFFFFF', separators: true, titleColor: '', steps: [ { title: T('step') + ' 1', html: T('stepDesc'), label: '', variant: 'normal' }, { title: T('step') + ' 2', html: T('desc'), label: '', variant: 'normal' }, { title: T('step') + ' 3', html: T('desc'), label: '', variant: 'normal' } ] }) },
   button:   { label: 'Bouton',       hint: 'Lien cliquable (VML Outlook)', make: () => ({ label: T('btn'), url: 'https://', align: 'center', width: 220, height: 42, color: '', textColor: '#FFFFFF' }) },
   image:    { label: 'Image',        hint: 'Logo, illustration', make: () => ({ src: '', embed: '', width: 540, alt: T('illus'), align: 'center', link: '' }) },
+  floatimg: { label: 'Image + texte', hint: 'Image flottante, texte qui l’entoure', make: () => ({ src: '', embed: '', width: 220, alt: T('illus'), side: 'left', frame: true, caption: '', html: T('hello'), gap: 14 }) },
   screenshot:{ label: 'Capture',     hint: 'Encadré pour screenshot + légende', make: () => ({ src: '', embed: '', width: 520, alt: T('shot'), caption: T('capture') + ' 1 – ' + T('captureDesc'), border: '#C9D2DC', bg: '#F7F9FB', label: '' }) },
   rawhtml:  { label: 'HTML libre',   hint: 'Code HTML inséré tel quel', make: () => ({ html: '<p style="margin:0;font-size:14px;line-height:20px;">' + T('raw') + '</p>' }) },
   table:    { label: 'Tableau',      hint: 'Données, planning, contacts', make: () => ({ headers: [T('col') + ' 1', T('col') + ' 2', T('col') + ' 3'], rows: [ ['', '', ''], ['', '', ''] ], zebra: true }) },
@@ -444,8 +446,8 @@ function renderBlock(b, edit) {
   const df = p => edit ? ` data-field="${p}"` : '';
   const PAD = '0 ${P}';
   const T = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">`;
-  const imgTag = (src, w, alt, extra = '') => src
-    ? `<img src="${esc(src)}" width="${w}" alt="${esc(alt)}" style="display:block;border:0;outline:none;text-decoration:none;width:${w}px;max-width:100%;height:auto;${extra}">`
+  const imgTag = (src, w, alt, extra = '', nat = null) => src
+    ? `<img src="${esc(src)}" width="${w}"${nat && nat.natW ? ` height="${Math.round(w * nat.natH / nat.natW)}"` : ''} alt="${esc(alt)}" style="display:block;border:0;outline:none;text-decoration:none;width:${w}px;max-width:100%;height:auto;${extra}">`
     : (edit ? `<div class="ph" style="width:${w}px;max-width:100%">Image : indiquez un chemin ou une URL dans le panneau Propriétés</div>` : '');
 
   switch (b.type) {
@@ -494,17 +496,26 @@ function renderBlock(b, edit) {
         `<!--[if !mso]><!--><a href="${esc(url)}" target="_blank" style="display:inline-block;width:${b.width}px;line-height:${b.height}px;background-color:${bg};color:${b.textColor};${FF}font-size:15px;font-weight:bold;text-align:center;text-decoration:none;border-radius:4px;mso-hide:all;">${esc(label)}</a><!--<![endif]--></td></tr>`;
     }
     case 'image': {
-      let img = imgTag(b.embed || b.src, b.width, b.alt);
+      let img = imgTag(b.embed || b.src, b.width, b.alt, '', b);
       if (b.link && !edit && b.src) img = `<a href="${esc(b.link)}" target="_blank" style="text-decoration:none;">${img}</a>`;
       return `<tr><td align="${b.align}" style="padding:10px ${P};">${img}</td></tr>`;
     }
     case 'screenshot': {
       const src = b.embed || b.src;
-      const img = src ? imgTag(src, b.width, b.alt) : (edit ? `<div class="ph" style="width:${b.width}px;max-width:100%">Capture d'écran : collez une image (Ctrl+V), ou indiquez un chemin dans Propriétés</div>` : '');
+      const img = src ? imgTag(src, b.width, b.alt, '', b) : (edit ? `<div class="ph" style="width:${b.width}px;max-width:100%">Capture d'écran : collez une image (Ctrl+V), ou indiquez un chemin dans Propriétés</div>` : '');
       return `<tr><td align="center" style="padding:10px ${P};"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${b.width + 14}" bgcolor="${b.bg}" style="width:${b.width + 14}px;border:1px solid ${b.border};background-color:${b.bg};">` +
         (b.label || edit ? `<tr><td style="padding:6px 8px 0 8px;${FF}font-size:12px;line-height:16px;font-weight:bold;color:${brand};"><div${df('label')}>${v('label')}</div></td></tr>` : '') +
         `<tr><td style="padding:6px;">${img}</td></tr>` +
         `<tr><td align="center" style="padding:0 8px 8px 8px;${FF}font-size:12px;line-height:16px;font-style:italic;color:#666666;"><div${df('caption')}>${v('caption')}</div></td></tr></table></td></tr>`;
+    }
+    case 'floatimg': {
+      const src = b.embed || b.src, side = b.side === 'right' ? 'right' : 'left', gap = Number(b.gap) || 14;
+      const img = src ? imgTag(src, b.width, b.alt, '', b) : (edit ? `<div class="ph" style="width:${b.width}px">Image flottante : collez (Ctrl+V) ou indiquez un chemin</div>` : '');
+      const inner = (b.frame ? `<td style="padding:5px;border:1px solid #C9D2DC;background-color:#F7F9FB;">` : `<td style="padding:0;">`) + img +
+        (b.caption || edit ? `<div${df('caption')} style="${FF}font-size:11px;line-height:15px;color:#666666;font-style:italic;padding-top:4px;text-align:center;">${v('caption')}</div>` : '') + `</td>`;
+      // align="left|right" sur la table : seule méthode de flottement comprise par Outlook (moteur Word)
+      const tbl = `<table align="${side}" cellpadding="0" cellspacing="0" border="0" width="${b.width + (b.frame ? 12 : 0)}" style="float:${side};width:${b.width + (b.frame ? 12 : 0)}px;margin:0 ${side === 'left' ? gap : 0}px 8px ${side === 'right' ? gap : 0}px;"><tr>${inner}</tr></table>`;
+      return `<tr><td style="padding:8px ${P};${FF}font-size:14px;line-height:20px;color:${S.text};">${tbl}<div${df('html')}>${v('html')}</div><div style="clear:both;font-size:0;line-height:0;">&nbsp;</div></td></tr>`;
     }
     case 'rawhtml':
       return edit
@@ -538,7 +549,8 @@ function buildHtml(opts = {}) {
   const S = doc.settings;
   if (doc.mode === 'code') return doc.codeHtml || '';
   const meta = opts.withMeta ? `<!--MTS_DOC:${b64enc(JSON.stringify(doc))}-->\n` : '';
-  const rows = doc.blocks.map(b => renderBlock(b, false)).join('\n');
+  // line-height figée pour le moteur Word (évite les interlignes aléatoires d'Outlook)
+  const rows = doc.blocks.map(b => renderBlock(b, false)).join('\n').replace(/line-height:(\d+)px;(?!mso)/g, 'line-height:$1px;mso-line-height-rule:exactly;');
   const pre = S.preheader ? `<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">${esc(S.preheader)}</div>` : '';
   return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" lang="fr">
@@ -546,13 +558,16 @@ function buildHtml(opts = {}) {
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="x-apple-disable-message-reformatting">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <title>${esc(doc.name)}</title>
 <!--[if mso]>
 <xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>
-<style>table,td{font-family:${S.font},Arial,sans-serif !important;} a{text-decoration:underline;}</style>
+<style>table,td{font-family:${S.font},Arial,sans-serif !important;} a{text-decoration:underline;} ul,ol{margin:0 0 0 24px !important;} li{mso-special-format:bullet;} img{-ms-interpolation-mode:bicubic;}</style>
 <![endif]-->
 <style type="text/css">
+  :root{color-scheme:light;supported-color-schemes:light;}
   body{margin:0;padding:0;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;}
   table{border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;}
   img{border:0;line-height:100%;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;}
@@ -560,11 +575,11 @@ function buildHtml(opts = {}) {
   a[x-apple-data-detectors]{color:inherit !important;text-decoration:none !important;}
 ${S.customCss ? S.customCss.trim() + '\n' : ''}</style>
 </head>
-<body style="margin:0;padding:0;background-color:${S.bg};">
+<body bgcolor="${S.bg}" style="margin:0;padding:0;background-color:${S.bg};word-spacing:normal;">
 ${meta}${pre}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${S.bg}" style="background-color:${S.bg};">
 <tr><td align="center" style="padding:24px 10px;">
-<!--[if mso]><table role="presentation" width="${S.width}" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td><![endif]-->
+<!--[if mso]><table role="presentation" width="${S.fluid ? '100%' : S.width}" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td><![endif]-->
 <table role="presentation" width="${S.fluid ? '100%' : S.width}" cellpadding="0" cellspacing="0" border="0" align="center" bgcolor="#FFFFFF" style="${S.fluid ? 'width:100%;' : 'width:' + S.width + 'px;'}max-width:${S.width}px;background-color:#FFFFFF;">
 ${rows}
 </table>
@@ -586,7 +601,8 @@ function audit(html) {
   else if (S.width > 640) add('info', 'Largeur élargie', `${S.width} px : lisible sur écran large ; sur mobile, la largeur fluide aide.`);
   if (!SAFE_FONTS.includes(S.font)) add('warn', 'Police non standard', `« ${S.font} » n'est pas installée partout ; Arial/Calibri sont sûres.`);
   if (/background-image|url\(/i.test(html)) add('err', 'Image de fond', 'Outlook (moteur Word) ignore les images de fond CSS.');
-  if (/display\s*:\s*(flex|grid)|position\s*:\s*(absolute|fixed)|float\s*:/i.test(html)) add('err', 'CSS de mise en page', 'flex, grid, float et position ne sont pas supportés par Outlook.');
+  if (/display\s*:\s*(flex|grid)|position\s*:\s*(absolute|fixed)/i.test(html)) add('err', 'CSS de mise en page', 'flex, grid et position ne sont pas supportés par Outlook.');
+  if (/<(?!table\b)[a-z]+\b[^>]*style="[^"]*float\s*:/i.test(html)) add('err', 'Flottement CSS', 'float: n\'est pas compris par Outlook ; utilisez le bloc « Image + texte » (table align="left/right").');
   const imgs = html.match(/<img\b[^>]*>/gi) || [];
   imgs.forEach(t => {
     const src = (t.match(/src="([^"]*)"/i) || [])[1] || '';
@@ -599,7 +615,7 @@ function audit(html) {
   });
   doc.blocks.forEach(b => {
     if (b.type === 'button' && (!b.url || b.url === 'https://' || b.url === '#')) add('err', 'Bouton sans lien', `Le bouton « ${stripTags(b.label)} » n'a pas d'URL.`);
-    if ((b.type === 'image' || b.type === 'screenshot') && !b.src && !b.embed) add('warn', BLOCKS[b.type].label + ' sans image', 'Collez une capture (Ctrl+V) ou indiquez un chemin.');
+    if ((b.type === 'image' || b.type === 'screenshot' || b.type === 'floatimg') && !b.src && !b.embed) add('warn', BLOCKS[b.type].label + ' sans image', 'Collez une capture (Ctrl+V) ou indiquez un chemin.');
     if (b.type === 'rawhtml' && /<(div|table)[^>]*style="[^"]*(flex|grid|float)/i.test(b.html)) add('err', 'HTML libre non conforme', 'Le bloc HTML libre utilise flex/grid/float.');
   });
   const txt = stripTags(html);
@@ -615,6 +631,8 @@ function audit(html) {
   const kb = new Blob([html]).size / 1024;
   if (kb > 100) add('warn', 'Mail volumineux', `${kb.toFixed(0)} Ko : Gmail tronque au-delà de 102 Ko.`);
   if (/<script|<link\s/i.test(html)) add('err', 'Script ou CSS externe', 'Supprimés par tous les clients mail.');
+  if (/<img\b(?![^>]*\bheight=)[^>]*>/i.test(html) && doc.mode !== 'code') add('info', 'Images sans hauteur explicite', 'Pour les images en chemin/URL, Outlook réserve la place seulement une fois l\'image chargée. Les images collées/incorporées ont leur hauteur calculée automatiquement.');
+  add('info', 'Mode sombre Outlook', 'Outlook Windows inverse les fonds clairs en mode sombre : bandeaux et encadrés deviennent sombres avec texte clair (voir Aperçu > Mode sombre). Comportement normal ; les couleurs vives et les images ne sont pas modifiées.');
   if (!S.preheader) add('info', 'Pas de pré-en-tête', 'Facultatif : une ligne de résumé améliore la lecture dans la liste des messages.');
   let score = 100; out.forEach(i => { score -= i.level === 'err' ? 15 : i.level === 'warn' ? 5 : 0; });
   return { issues: out, score: Math.max(0, score), kb };
@@ -718,6 +736,7 @@ const PROPS = {
   steps:  [ ['numbering','Numérotation','select',['number|1, 2, 3','dotted|1., 2., 3.','letter|A, B, C','roman|I, II, III','none|Sans pastille']], ['start','Commencer à','number'], ['shape','Forme de la pastille','select',['round|Ronde','square|Carrée']], ['size','Taille de la pastille (px)','number'], ['badgeColor','Couleur de la pastille (vide = principale)','color'], ['badgeText','Couleur du numéro','color'], ['titleColor','Couleur des titres d\'étape (vide = principale)','color'], ['separators','Lignes de séparation','check'] ],
   button: [ ['label','Texte du bouton','text'], ['url','Lien (https://… ou mailto:)','text'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite']], ['width','Largeur (px)','number'], ['height','Hauteur (px)','number'], ['color','Couleur de fond (vide = principale)','color'], ['textColor','Couleur du texte','color'] ],
   image:  [ ['src','Chemin ou URL de l\'image','image'], ['embed','','embed'], ['width','Largeur (px)','number'], ['alt','Texte alternatif','text'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite']], ['link','Lien au clic (facultatif)','text'] ],
+  floatimg:[ ['src','Chemin ou URL de l\'image','image'], ['embed','','embed'], ['width','Largeur de l\'image (px)','number'], ['side','Côté','select',['left|Image à gauche','right|Image à droite']], ['gap','Espace image / texte (px)','number'], ['frame','Cadre autour de l\'image','check'], ['alt','Texte alternatif','text'], ['caption','Légende sous l\'image','text'] ],
   screenshot:[ ['src','Chemin ou URL de la capture','image'], ['embed','','embed'], ['width','Largeur (px)','number'], ['alt','Texte alternatif','text'], ['label','Étiquette au-dessus (facultatif)','text'], ['caption','Légende','text'], ['border','Couleur du cadre','color'], ['bg','Fond du cadre','color'] ],
   rawhtml:[ ['html','Code HTML du bloc','textarea'] ],
   table:  [ ['zebra','Lignes alternées','check'] ],
@@ -777,11 +796,11 @@ $('#propsBody').addEventListener('click', e => {
   const b = doc.blocks.find(x => x.id === selectedId);
   if (btn.dataset.act) return blockAction(selectedId, btn.dataset.act);
   if (!b) return;
-  if (btn.dataset.pick) return pickImage(v => { b[btn.dataset.pick] = v; b.embed = ''; commit({ canvas: true, props: true }); });
+  if (btn.dataset.pick) return pickImage(v => { b[btn.dataset.pick] = v; b.embed = ''; b.natW = b.natH = 0; commit({ canvas: true, props: true }); });
   if (btn.dataset.embed === 'paste') return pasteImageFromClipboard();
-  if (btn.dataset.embed === 'file') { const inp = $('#fileImg'); inp.onchange = () => { const f = inp.files[0]; inp.value = ''; if (!f) return; const r = new FileReader(); r.onload = () => { b.embed = r.result; b.src = ''; commit({ canvas: true, props: true }); }; r.readAsDataURL(f); }; return inp.click(); }
+  if (btn.dataset.embed === 'file') { const inp = $('#fileImg'); inp.onchange = () => { const f = inp.files[0]; inp.value = ''; if (!f) return; const r = new FileReader(); r.onload = () => { b.embed = r.result; b.src = ''; measureImage(b, r.result); commit({ canvas: true, props: true }); }; r.readAsDataURL(f); }; return inp.click(); }
   if (btn.dataset.embed === 'dl') return downloadEmbedded(b.embed, (stripTags(b.caption || b.alt || 'image')).replace(/[^\w\-]+/g, '_').slice(0, 40) + '.png');
-  if (btn.dataset.embed === 'rm') { b.embed = ''; commit({ canvas: true, props: true }); return; }
+  if (btn.dataset.embed === 'rm') { b.embed = ''; b.natW = b.natH = 0; commit({ canvas: true, props: true }); return; }
   if (btn.dataset.stepact) {
     const i = +btn.dataset.si, a = btn.dataset.stepact, st = b.steps;
     if (a === 'up' && i > 0) [st[i - 1], st[i]] = [st[i], st[i - 1]];
@@ -914,11 +933,11 @@ document.addEventListener('paste', e => {
 });
 function setEmbeddedImage(dataUrl) {
   const b = doc.blocks.find(x => x.id === selectedId);
-  if (b && (b.type === 'screenshot' || b.type === 'image')) { b.embed = dataUrl; b.src = ''; commit({ canvas: true, structure: true, props: true }); toast('Image collée dans le bloc sélectionné'); return; }
+  if (b && (b.type === 'screenshot' || b.type === 'image' || b.type === 'floatimg')) { b.embed = dataUrl; b.src = ''; measureImage(b, dataUrl); commit({ canvas: true, structure: true, props: true }); toast('Image collée dans le bloc sélectionné'); return; }
   const n = doc.blocks.filter(x => x.type === 'screenshot').length + 1;
   const nb = Object.assign({ id: uid(), type: 'screenshot' }, BLOCKS.screenshot.make(), { embed: dataUrl, caption: `${T('capture')} ${n} – ${T('captureDesc')}` });
   const idx = selectedId ? doc.blocks.findIndex(x => x.id === selectedId) + 1 : doc.blocks.length;
-  doc.blocks.splice(idx, 0, nb); selectedId = nb.id; commit({ canvas: true, structure: true, props: true });
+  doc.blocks.splice(idx, 0, nb); selectedId = nb.id; measureImage(nb, dataUrl); commit({ canvas: true, structure: true, props: true });
   $(`.blk[data-id="${nb.id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   toast('Capture collée : nouveau bloc Capture ajouté');
 }
@@ -928,6 +947,18 @@ async function pasteImageFromClipboard() {
     for (const it of items) { const ty = it.types.find(t => t.startsWith('image/')); if (ty) { const blob = await it.getType(ty); const r = new FileReader(); r.onload = () => setEmbeddedImage(r.result); r.readAsDataURL(blob); return; } }
     toast('Aucune image dans le presse-papier');
   } catch { toast('Accès au presse-papier refusé : utilisez Ctrl+V directement sur le mail'); }
+}
+// Mesure l'image incorporée : hauteur explicite pour Outlook + largeur native si plus petite que la zone utile
+function measureImage(b, dataUrl) {
+  const im = new Image();
+  im.onload = () => {
+    b.natW = im.naturalWidth; b.natH = im.naturalHeight;
+    const usable = doc.settings.width - 2 * (doc.settings.pad ?? 28) - (b.type === 'screenshot' ? 14 : 0);
+    if (b.type !== 'floatimg') b.width = Math.min(b.natW, usable);
+    else b.width = Math.min(b.width, Math.round(usable * 0.6), b.natW);
+    commit({ canvas: true, props: true });
+  };
+  im.src = dataUrl;
 }
 function downloadEmbedded(dataUrl, name) {
   const a = document.createElement('a'); a.href = dataUrl; a.download = name; a.click();
@@ -1197,8 +1228,7 @@ const bindSetting = (id, key, transform = v => v, twin = null) => $(id).addEvent
   doc.settings[key] = v; if (twin) $(twin).value = v; commit({ canvas: true });
 });
 bindSetting('#sWidth', 'width', v => Math.min(1400, Math.max(320, Number(v) || 600)));
-$('#sW600').addEventListener('click', () => { doc.settings.width = 600; $('#sWidth').value = 600; commit({ canvas: true }); });
-$('#sW800').addEventListener('click', () => { doc.settings.width = 800; $('#sWidth').value = 800; commit({ canvas: true }); });
+$$('#left button[data-w]').forEach(bt => bt.addEventListener('click', () => { doc.settings.width = +bt.dataset.w; $('#sWidth').value = bt.dataset.w; commit({ canvas: true }); }));
 $('#sFluid').addEventListener('change', e => { doc.settings.fluid = e.target.checked; commit({ canvas: true }); });
 $('#sMeta').addEventListener('change', e => { doc.settings.meta = e.target.checked; autosave(); });
 bindSetting('#sPad', 'pad', v => Math.min(80, Math.max(0, Number(v) || 0)));
@@ -1256,6 +1286,7 @@ $('#btnPreview').addEventListener('click', () => { $('#previewFrame').srcdoc = b
 $('#previewClose').addEventListener('click', () => $('#previewModal').classList.remove('on'));
 $('#previewModal').addEventListener('click', e => { if (e.target.id === 'previewModal') e.currentTarget.classList.remove('on'); });
 $$('#previewModal [data-w]').forEach(b => b.addEventListener('click', () => { $('#previewFrame').style.width = b.dataset.w; }));
+$('#previewDark').addEventListener('click', () => { const f = $('#previewFrame'); const on = f.style.filter !== ''; f.style.filter = on ? '' : 'invert(1) hue-rotate(180deg)'; $('#previewDark').classList.toggle('primary', !on); });
 
 /* ------------------------------------------------------- Stockage local */
 const LS_AUTO = 'mailtpl:autosave', LS_LIB = 'mailtpl:library';
