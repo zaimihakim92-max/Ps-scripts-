@@ -81,6 +81,9 @@
   [contenteditable]{min-height:1em;cursor:text}
   [contenteditable]:empty::before{content:"Saisir le texte…";color:#A0A8B4}
   .ph{border:2px dashed #C7D0DB;color:#7A8797;padding:24px;text-align:center;font-size:12px}
+  .srcField{display:block;width:100%;min-height:64px;font:12px/1.5 Consolas,"Cascadia Mono",monospace;color:#1B2A41;background:#FBFCFE;border:1px dashed #9FB3C8;border-radius:4px;padding:6px 8px;resize:vertical;white-space:pre-wrap}
+  .rawView{outline:1px dotted #9FB3C8;outline-offset:2px}
+  #btnHtmlMode.on{background:var(--accent);border-color:var(--accent);color:#fff}
   #canvasEmpty{text-align:center;color:var(--muted);padding:60px 20px}
   #canvasEmpty b{display:block;font-size:15px;color:var(--ink);margin-bottom:6px}
 
@@ -197,7 +200,9 @@
         <option>{{PRENOM}}</option><option>{{NOM}}</option><option>{{NOMCOMPLET}}</option><option>{{EMAIL}}</option><option>{{DATE}}</option><option>{{HEURE}}</option>
       </select>
       <button data-cmd="removeFormat" title="Effacer la mise en forme">Effacer</button>
-      <span class="hint">Cliquez dans un texte du mail pour l'éditer directement</span>
+      <span class="sep"></span>
+      <button id="btnHtmlMode" title="Basculer chaque zone de texte en code HTML">Mode HTML</button>
+      <span class="hint">Cliquez dans un texte pour l'éditer · Ctrl+V colle avec la mise en forme, Ctrl+Maj+V en texte brut · une capture d'écran collée crée un bloc Capture</span>
     </div>
     <div id="canvasWrap"><div id="canvas"></div></div>
   </section>
@@ -289,7 +294,9 @@ const BLOCKS = {
   callout:  { label: 'Encadré',      hint: 'Info / Attention / Succès / Erreur', make: () => ({ variant: 'warn', html: 'Point de vigilance à respecter.' }) },
   steps:    { label: 'Étapes',       hint: 'Procédure numérotée', make: () => ({ steps: [ { title: 'Première étape', html: 'Description de l’action à réaliser.' }, { title: 'Deuxième étape', html: 'Description.' }, { title: 'Troisième étape', html: 'Description.' } ] }) },
   button:   { label: 'Bouton',       hint: 'Lien cliquable (VML Outlook)', make: () => ({ label: 'Ouvrir le portail', url: 'https://', align: 'center', width: 220, height: 42, color: '', textColor: '#FFFFFF' }) },
-  image:    { label: 'Image',        hint: 'Capture, logo, illustration', make: () => ({ src: '', width: 540, alt: 'Capture d’écran', align: 'center', link: '' }) },
+  image:    { label: 'Image',        hint: 'Logo, illustration', make: () => ({ src: '', embed: '', width: 540, alt: 'Illustration', align: 'center', link: '' }) },
+  screenshot:{ label: 'Capture',     hint: 'Encadré pour screenshot + légende', make: () => ({ src: '', embed: '', width: 520, alt: 'Capture d’écran', caption: 'Capture 1 – Description de l’écran', border: '#C9D2DC', bg: '#F7F9FB', label: '' }) },
+  rawhtml:  { label: 'HTML libre',   hint: 'Code HTML inséré tel quel', make: () => ({ html: '<p style="margin:0;font-size:14px;line-height:20px;">Votre code HTML ici.</p>' }) },
   table:    { label: 'Tableau',      hint: 'Données, planning, contacts', make: () => ({ headers: ['Colonne 1', 'Colonne 2', 'Colonne 3'], rows: [ ['', '', ''], ['', '', ''] ], zebra: true }) },
   columns:  { label: '2 colonnes',   hint: 'Texte côte à côte', make: () => ({ left: 'Colonne de gauche', right: 'Colonne de droite' }) },
   divider:  { label: 'Séparateur',   hint: 'Ligne fine', make: () => ({ color: '#DDDDDD' }) },
@@ -390,10 +397,22 @@ function renderBlock(b, edit) {
         `<!--[if !mso]><!--><a href="${esc(url)}" target="_blank" style="display:inline-block;width:${b.width}px;line-height:${b.height}px;background-color:${bg};color:${b.textColor};${FF}font-size:15px;font-weight:bold;text-align:center;text-decoration:none;border-radius:4px;mso-hide:all;">${esc(label)}</a><!--<![endif]--></td></tr>`;
     }
     case 'image': {
-      let img = imgTag(b.src, b.width, b.alt);
+      let img = imgTag(b.embed || b.src, b.width, b.alt);
       if (b.link && !edit && b.src) img = `<a href="${esc(b.link)}" target="_blank" style="text-decoration:none;">${img}</a>`;
       return `<tr><td align="${b.align}" style="padding:10px 28px;">${img}</td></tr>`;
     }
+    case 'screenshot': {
+      const src = b.embed || b.src;
+      const img = src ? imgTag(src, b.width, b.alt) : (edit ? `<div class="ph" style="width:${b.width}px;max-width:100%">Capture d'écran : collez une image (Ctrl+V), ou indiquez un chemin dans Propriétés</div>` : '');
+      return `<tr><td align="center" style="padding:10px 28px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${b.width + 14}" bgcolor="${b.bg}" style="width:${b.width + 14}px;border:1px solid ${b.border};background-color:${b.bg};">` +
+        (b.label || edit ? `<tr><td style="padding:6px 8px 0 8px;${FF}font-size:12px;line-height:16px;font-weight:bold;color:${brand};"><div${df('label')}>${v('label')}</div></td></tr>` : '') +
+        `<tr><td style="padding:6px;">${img}</td></tr>` +
+        `<tr><td align="center" style="padding:0 8px 8px 8px;${FF}font-size:12px;line-height:16px;font-style:italic;color:#666666;"><div${df('caption')}>${v('caption')}</div></td></tr></table></td></tr>`;
+    }
+    case 'rawhtml':
+      return edit
+        ? `<tr><td style="padding:8px 28px;"><div class="rawView" data-raw="1"${df('html')}>${b.html}</div></td></tr>`
+        : `<tr><td style="padding:8px 28px;${FF}color:${S.text};">${b.html}</td></tr>`;
     case 'table': {
       const th = b.headers.map((h, j) => `<td bgcolor="${brand}" style="background-color:${brand};border:1px solid #BFBFBF;padding:7px 9px;${FF}font-size:13px;font-weight:bold;color:#ffffff;"><div${df('headers.' + j)}>${v('headers.' + j)}</div></td>`).join('');
       const tr = b.rows.map((r, i) => `<tr>` + r.map((c, j) => `<td${b.zebra && i % 2 ? ' bgcolor="#F6F8FA"' : ''} style="${b.zebra && i % 2 ? 'background-color:#F6F8FA;' : ''}border:1px solid #BFBFBF;padding:6px 9px;${FF}font-size:13px;line-height:18px;color:${S.text};"><div${df('rows.' + i + '.' + j)}>${v('rows.' + i + '.' + j) || (edit ? '' : '&nbsp;')}</div></td>`).join('') + `</tr>`).join('');
@@ -470,7 +489,7 @@ function audit(html) {
   const imgs = html.match(/<img\b[^>]*>/gi) || [];
   imgs.forEach(t => {
     const src = (t.match(/src="([^"]*)"/i) || [])[1] || '';
-    if (/^data:/i.test(src)) add('err', 'Image en base64', 'Outlook bureau n\'affiche pas les images data:. Utilisez un chemin local (embarqué à l\'envoi) ou une URL https.');
+    if (/^data:/i.test(src)) add('warn', 'Image incorporée (base64)', 'Invisible si le HTML est collé tel quel dans Outlook. Envoyée via Mail-Campaign-Tool.ps1, elle est convertie en image embarquée (cid) et s\'affiche. Sinon : « Télécharger en PNG » puis référencer le fichier par chemin.');
     else if (/^http:\/\//i.test(src)) add('warn', 'Image en http://', `Préférez https : ${src.slice(0, 60)}`);
     if (!/\balt="[^"]+"/i.test(t)) add('warn', 'Image sans texte alternatif', 'Les images sont bloquées par défaut ; le texte alt reste visible.');
     const w = parseInt((t.match(/\bwidth="(\d+)"/) || [])[1] || 0, 10);
@@ -478,7 +497,8 @@ function audit(html) {
   });
   doc.blocks.forEach(b => {
     if (b.type === 'button' && (!b.url || b.url === 'https://' || b.url === '#')) add('err', 'Bouton sans lien', `Le bouton « ${stripTags(b.label)} » n'a pas d'URL.`);
-    if (b.type === 'image' && !b.src) add('warn', 'Image sans source', 'Le bloc image est vide.');
+    if ((b.type === 'image' || b.type === 'screenshot') && !b.src && !b.embed) add('warn', BLOCKS[b.type].label + ' sans image', 'Collez une capture (Ctrl+V) ou indiquez un chemin.');
+    if (b.type === 'rawhtml' && /<(div|table)[^>]*style="[^"]*(flex|grid|float)/i.test(b.html)) add('err', 'HTML libre non conforme', 'Le bloc HTML libre utilise flex/grid/float.');
   });
   const txt = stripTags(html);
   if (/\[[^\]\n]{2,60}\]/.test(txt)) add('warn', 'Texte à compléter', 'Des crochets [ … ] subsistent dans le contenu.');
@@ -513,6 +533,18 @@ function renderCanvas() {
       <button title="Dupliquer" data-act="dup">⧉</button><button title="Supprimer" data-act="del" class="danger">✕</button></div></td></tr></tbody>`).join('');
   c.innerHTML = `<table width="100%" cellpadding="0" cellspacing="0" border="0">${rows}</table>`;
   c.querySelectorAll('[data-field]').forEach(el => {
+    if (htmlMode || el.dataset.raw) {
+      // Mode code : chaque zone de texte devient un éditeur de source HTML
+      const b = doc.blocks.find(x => x.id === el.closest('.blk').dataset.id);
+      const ta = document.createElement('textarea');
+      ta.className = 'srcField'; ta.spellcheck = false; ta.value = getPath(b, el.dataset.field) ?? '';
+      ta.rows = Math.min(18, Math.max(3, ta.value.split('\n').length + 1));
+      ta.addEventListener('input', () => { setPath(b, el.dataset.field, ta.value); clearTimeout(inputTimer); inputTimer = setTimeout(() => { snapshot = JSON.stringify(doc); refreshOutputs(); autosave(); }, 400); });
+      ta.addEventListener('focus', () => { const id = el.closest('.blk').dataset.id; if (id !== selectedId) selectBlock(id, false); });
+      if (!el.dataset.raw || htmlMode) { el.innerHTML = ''; el.appendChild(ta); el.classList.remove('rawView'); }
+      else { el.title = 'Bloc HTML libre : modifiez le code dans Propriétés ou en Mode HTML'; el.addEventListener('click', () => showTab('props')); }
+      return;
+    }
     el.setAttribute('contenteditable', 'true');
     el.spellcheck = true;
     el.addEventListener('input', onFieldInput);
@@ -524,9 +556,13 @@ function renderCanvas() {
       }
     });
     el.addEventListener('paste', e => {
+      const cd = e.clipboardData; if (!cd) return;
+      if ([...cd.items].some(i => i.type.startsWith('image/'))) return; // géré au niveau du document
       e.preventDefault();
-      const t = (e.clipboardData || window.clipboardData).getData('text/plain');
-      document.execCommand('insertText', false, t);
+      const h = cd.getData('text/html');
+      if (h && !plainPasteFlag) document.execCommand('insertHTML', false, sanitizePaste(h));
+      else document.execCommand('insertText', false, cd.getData('text/plain'));
+      plainPasteFlag = false;
     });
   });
 }
@@ -543,7 +579,7 @@ function renderStructure() {
   if (!doc.blocks.length) { ul.innerHTML = '<li class="empty">Aucun bloc</li>'; return; }
   ul.innerHTML = doc.blocks.map(b => {
     const lab = BLOCKS[b.type].label;
-    const txt = stripTags(b.title || b.text || b.label || b.html || (b.steps ? b.steps[0]?.title : '') || b.left || (b.headers ? b.headers.join(' | ') : '') || b.alt || '').slice(0, 40);
+    const txt = stripTags(b.title || b.text || b.caption || b.label || (b.type === 'rawhtml' ? '' : b.html) || (b.steps ? b.steps[0]?.title : '') || b.left || (b.headers ? b.headers.join(' | ') : '') || b.alt || '').slice(0, 40);
     return `<li draggable="true" data-id="${b.id}" class="${b.id === selectedId ? 'sel' : ''}"><span class="grip">⋮⋮</span><span class="t"><b>${lab}</b>${txt ? ' · ' + esc(txt) : ''}</span></li>`;
   }).join('');
 }
@@ -568,7 +604,9 @@ const PROPS = {
   callout:[ ['variant','Type','select',['info|Information (bleu)','warn|Attention (orange)','ok|Succès (vert)','err|Erreur (rouge)']] ],
   steps:  [],
   button: [ ['label','Texte du bouton','text'], ['url','Lien (https://… ou mailto:)','text'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite']], ['width','Largeur (px)','number'], ['height','Hauteur (px)','number'], ['color','Couleur de fond (vide = principale)','color'], ['textColor','Couleur du texte','color'] ],
-  image:  [ ['src','Chemin ou URL de l\'image','image'], ['width','Largeur (px)','number'], ['alt','Texte alternatif','text'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite']], ['link','Lien au clic (facultatif)','text'] ],
+  image:  [ ['src','Chemin ou URL de l\'image','image'], ['embed','','embed'], ['width','Largeur (px)','number'], ['alt','Texte alternatif','text'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite']], ['link','Lien au clic (facultatif)','text'] ],
+  screenshot:[ ['src','Chemin ou URL de la capture','image'], ['embed','','embed'], ['width','Largeur (px)','number'], ['alt','Texte alternatif','text'], ['label','Étiquette au-dessus (facultatif)','text'], ['caption','Légende','text'], ['border','Couleur du cadre','color'], ['bg','Fond du cadre','color'] ],
+  rawhtml:[ ['html','Code HTML du bloc','textarea'] ],
   table:  [ ['zebra','Lignes alternées','check'] ],
   columns:[],
   divider:[ ['color','Couleur','color'] ],
@@ -584,12 +622,16 @@ function renderProps() {
   let h = `<div class="title">${def.label}</div><div class="sub">${def.hint}</div>`;
   for (const [key, label, type, opts] of PROPS[b.type]) {
     const val = b[key];
-    h += `<label>${label}</label>`;
+    if (label) h += `<label>${label}</label>`;
     if (type === 'text') h += `<input type="text" data-key="${key}" value="${esc(val)}">`;
     else if (type === 'number') h += `<input type="number" data-key="${key}" value="${val}">`;
     else if (type === 'check') h += `<div class="row"><input type="checkbox" data-key="${key}" ${val ? 'checked' : ''} style="width:auto;flex:0"><span style="color:var(--muted);font-size:12px">${val ? 'Oui' : 'Non'}</span></div>`;
     else if (type === 'color') h += `<div class="row"><input type="color" data-key="${key}" data-color="1" value="${/^#[0-9a-f]{6}$/i.test(val) ? val : '#000000'}"><input type="text" data-key="${key}" value="${esc(val)}" placeholder="#RRGGBB"></div>`;
     else if (type === 'select') h += `<select data-key="${key}">${opts.map(o => { const [v, l] = o.split('|'); return `<option value="${v}" ${v == val ? 'selected' : ''}>${l}</option>`; }).join('')}</select>`;
+    else if (type === 'textarea') h += `<textarea data-key="${key}" rows="10" class="srcField" style="border-style:solid" spellcheck="false">${esc(val)}</textarea>`;
+    else if (type === 'embed') h += (val
+      ? `<div class="note">Image incorporée dans le modèle (${(val.length * 0.75 / 1024).toFixed(0)} Ko).</div><div class="btnrow"><button class="sm" data-embed="dl">Télécharger en PNG</button><button class="sm danger" data-embed="rm">Retirer</button></div>`
+      : `<div class="btnrow"><button class="sm" data-embed="paste">Coller une capture du presse-papier</button><button class="sm" data-embed="file">Incorporer un fichier…</button></div>`);
     else if (type === 'image') h += `<div class="row"><input type="text" data-key="${key}" value="${esc(val)}" placeholder="C:\\Images\\capture.png ou https://…"><button class="sm" data-pick="${key}">Fichier…</button></div><div class="kv">Chemin local : embarqué à l'envoi par l'outil PowerShell. URL https : doit rester accessible.</div>`;
   }
   if (b.type === 'steps') h += `<div class="btnrow"><button data-step="add">+ Ajouter une étape</button><button data-step="del" ${b.steps.length < 2 ? 'disabled' : ''}>– Retirer la dernière</button></div>`;
@@ -611,7 +653,11 @@ $('#propsBody').addEventListener('click', e => {
   const b = doc.blocks.find(x => x.id === selectedId);
   if (btn.dataset.act) return blockAction(selectedId, btn.dataset.act);
   if (!b) return;
-  if (btn.dataset.pick) return pickImage(v => { b[btn.dataset.pick] = v; commit({ canvas: true, props: true }); });
+  if (btn.dataset.pick) return pickImage(v => { b[btn.dataset.pick] = v; b.embed = ''; commit({ canvas: true, props: true }); });
+  if (btn.dataset.embed === 'paste') return pasteImageFromClipboard();
+  if (btn.dataset.embed === 'file') { const inp = $('#fileImg'); inp.onchange = () => { const f = inp.files[0]; inp.value = ''; if (!f) return; const r = new FileReader(); r.onload = () => { b.embed = r.result; b.src = ''; commit({ canvas: true, props: true }); }; r.readAsDataURL(f); }; return inp.click(); }
+  if (btn.dataset.embed === 'dl') return downloadEmbedded(b.embed, (stripTags(b.caption || b.alt || 'image')).replace(/[^\w\-]+/g, '_').slice(0, 40) + '.png');
+  if (btn.dataset.embed === 'rm') { b.embed = ''; commit({ canvas: true, props: true }); return; }
   if (btn.dataset.step === 'add') b.steps.push({ title: 'Nouvelle étape', html: 'Description.' });
   if (btn.dataset.step === 'del') b.steps.pop();
   if (btn.dataset.tbl === 'addRow') b.rows.push(b.headers.map(() => ''));
@@ -682,6 +728,81 @@ function refreshOutputs() {
   const tabBtn = $('.tabs button[data-tab=check]');
   tabBtn.textContent = `Conformité ${a.score}`;
 }
+
+/* ------------------------------------------------------- Collage */
+let plainPasteFlag = false, htmlMode = false;
+document.addEventListener('keydown', e => { if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'v') plainPasteFlag = true; });
+// HTML collé depuis Word / Outlook / navigateur -> HTML minimal et propre
+function sanitizePaste(html) {
+  const t = document.createElement('div');
+  t.innerHTML = html.replace(/<!--[\s\S]*?-->/g, '').replace(/<\/?o:p[^>]*>/gi, '');
+  t.querySelectorAll('script,style,meta,link,title,head,img,svg,iframe,object,input,button').forEach(n => n.remove());
+  const KEEP = { B: 'b', STRONG: 'b', I: 'i', EM: 'i', U: 'u', S: 's', STRIKE: 's', A: 'a', BR: 'br', UL: 'ul', OL: 'ol', LI: 'li', SUP: 'sup', SUB: 'sub' };
+  const BLOCK = ['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TR', 'BLOCKQUOTE', 'PRE', 'SECTION', 'ARTICLE'];
+  const walk = node => {
+    [...node.children].forEach(walk);
+    const tag = node.tagName; if (!tag || node === t) return;
+    const cs = node.getAttribute('style') || '';
+    const bold = /font-weight\s*:\s*(bold|[6-9]00)/i.test(cs) || /^H[1-6]$/.test(tag);
+    const ital = /font-style\s*:\s*italic/i.test(cs);
+    const under = /text-decoration[^;]*underline/i.test(cs);
+    const color = (cs.match(/(?:^|;)\s*color\s*:\s*([^;]+)/i) || [])[1];
+    const bgc = (cs.match(/background(?:-color)?\s*:\s*([^;]+)/i) || [])[1];
+    let out;
+    if (KEEP[tag]) { out = document.createElement(KEEP[tag]); if (tag === 'A') { out.setAttribute('href', node.getAttribute('href') || '#'); } }
+    else if (BLOCK.includes(tag)) { out = document.createDocumentFragment(); }
+    else if (tag === 'TD' || tag === 'TH') { out = document.createDocumentFragment(); node.appendChild(document.createTextNode('\t')); }
+    else { out = document.createDocumentFragment(); }
+    let inner = document.createDocumentFragment(); while (node.firstChild) inner.appendChild(node.firstChild);
+    if (color && color.trim() !== 'windowtext' && !/^(#000000|black|rgb\(0, ?0, ?0\))$/i.test(color.trim()) || bgc && !/transparent|white|#fff/i.test(bgc)) {
+      const sp = document.createElement('span'); if (color) sp.style.color = color.trim(); if (bgc && !/transparent|white|#fff/i.test(bgc)) sp.style.backgroundColor = bgc.trim(); sp.appendChild(inner); inner = sp;
+    }
+    if (bold && !KEEP[tag]) { const b = document.createElement('b'); b.appendChild(inner); inner = b; }
+    if (ital && !KEEP[tag]) { const i = document.createElement('i'); i.appendChild(inner); inner = i; }
+    if (under && !KEEP[tag]) { const u = document.createElement('u'); u.appendChild(inner); inner = u; }
+    out.appendChild(inner);
+    if (BLOCK.includes(tag) && node.nextSibling) out.appendChild(document.createElement('br'));
+    node.replaceWith(out);
+  };
+  walk(t);
+  return t.innerHTML.replace(/(<br>\s*){3,}/gi, '<br><br>').replace(/&nbsp;/g, ' ').trim();
+}
+// Capture d'écran collée n'importe où : bloc Capture (ou remplit le bloc image sélectionné)
+document.addEventListener('paste', e => {
+  const cd = e.clipboardData; if (!cd) return;
+  const item = [...cd.items].find(i => i.type.startsWith('image/')); if (!item) return;
+  if (document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName) && !document.activeElement.classList.contains('srcField')) return;
+  e.preventDefault();
+  const r = new FileReader();
+  r.onload = () => setEmbeddedImage(r.result);
+  r.readAsDataURL(item.getAsFile());
+});
+function setEmbeddedImage(dataUrl) {
+  const b = doc.blocks.find(x => x.id === selectedId);
+  if (b && (b.type === 'screenshot' || b.type === 'image')) { b.embed = dataUrl; b.src = ''; commit({ canvas: true, structure: true, props: true }); toast('Image collée dans le bloc sélectionné'); return; }
+  const n = doc.blocks.filter(x => x.type === 'screenshot').length + 1;
+  const nb = Object.assign({ id: uid(), type: 'screenshot' }, BLOCKS.screenshot.make(), { embed: dataUrl, caption: `Capture ${n} – Description de l’écran` });
+  const idx = selectedId ? doc.blocks.findIndex(x => x.id === selectedId) + 1 : doc.blocks.length;
+  doc.blocks.splice(idx, 0, nb); selectedId = nb.id; commit({ canvas: true, structure: true, props: true });
+  $(`.blk[data-id="${nb.id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  toast('Capture collée : nouveau bloc Capture ajouté');
+}
+async function pasteImageFromClipboard() {
+  try {
+    const items = await navigator.clipboard.read();
+    for (const it of items) { const ty = it.types.find(t => t.startsWith('image/')); if (ty) { const blob = await it.getType(ty); const r = new FileReader(); r.onload = () => setEmbeddedImage(r.result); r.readAsDataURL(blob); return; } }
+    toast('Aucune image dans le presse-papier');
+  } catch { toast('Accès au presse-papier refusé : utilisez Ctrl+V directement sur le mail'); }
+}
+function downloadEmbedded(dataUrl, name) {
+  const a = document.createElement('a'); a.href = dataUrl; a.download = name; a.click();
+}
+$('#btnHtmlMode').addEventListener('click', () => {
+  htmlMode = !htmlMode; lastFocusedField = null;
+  $('#btnHtmlMode').classList.toggle('on', htmlMode); $('#btnHtmlMode').textContent = htmlMode ? 'Mode visuel' : 'Mode HTML';
+  $$('#fmtbar button[data-cmd],#fmtColorBtn,#fmtLink,#fmtVar,#fmtColor').forEach(b => b.disabled = htmlMode);
+  renderCanvas();
+});
 
 /* ------------------------------------------------------- Mise en forme */
 function saveSel() { const s = document.getSelection(); if (s && s.rangeCount) savedRange = s.getRangeAt(0).cloneRange(); }
@@ -827,6 +948,7 @@ const STARTERS = {
     mk('text', { html: '<ul><li>[Prérequis 1]</li><li>[Prérequis 2]</li></ul>' }),
     mk('title', { text: '2. Étapes à suivre' }),
     mk('steps', {}),
+    mk('screenshot', { caption: 'Capture 1 – Écran attendu après l’étape 2' }),
     mk('callout', { variant: 'warn', html: '[Action irréversible, point de vigilance]' }),
     mk('title', { text: '3. Vérification' }),
     mk('text', { html: '[Comment vérifier que l’opération a réussi.]' }),
