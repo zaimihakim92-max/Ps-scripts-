@@ -85,6 +85,12 @@
   .blk.dragging{opacity:.5}
   .freeimg-handle{cursor:move;outline:2px dashed transparent;outline-offset:2px}
   .blk.sel .freeimg-handle{outline-color:var(--accent)}
+  .ov{position:absolute;cursor:move;outline:2px dashed transparent;outline-offset:2px}
+  .ov.sel{outline-color:var(--accent)}
+  .ov.back{opacity:.6}
+  .ov .lay{position:absolute;left:0;top:-18px;background:var(--ink);color:#fff;font-size:10px;padding:1px 6px;border-radius:3px;white-space:nowrap;display:none}
+  .ov.sel .lay{display:block}
+  .blk.host-target{outline:2px solid var(--accent);outline-offset:-2px;background:rgba(14,124,134,.06)}
   .freeimg-pos{position:absolute;left:6px;top:6px;background:var(--ink);color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;pointer-events:none;display:none}
   body.dragging-img{user-select:none;cursor:move}
   .ph{border:2px dashed #C7D0DB;color:#7A8797;padding:24px;text-align:center;font-size:12px}
@@ -384,7 +390,7 @@ const BLOCKS = {
   steps:    { label: 'Étapes',       hint: 'Procédure numérotée', make: () => ({ numbering: 'number', start: 1, shape: 'round', size: 28, badgeColor: '', badgeText: '#FFFFFF', separators: true, titleColor: '', steps: [ { title: T('step') + ' 1', html: T('stepDesc'), label: '', variant: 'normal' }, { title: T('step') + ' 2', html: T('desc'), label: '', variant: 'normal' }, { title: T('step') + ' 3', html: T('desc'), label: '', variant: 'normal' } ] }) },
   button:   { label: 'Bouton',       hint: 'Lien cliquable (VML Outlook)', make: () => ({ label: T('btn'), url: 'https://', align: 'center', width: 220, height: 42, color: '', textColor: '#FFFFFF' }) },
   image:    { label: 'Image',        hint: 'Logo, illustration', make: () => ({ src: '', embed: '', width: 540, alt: T('illus'), align: 'center', link: '' }) },
-  freeimg:  { label: 'Image libre',  hint: 'Déplaçable à la souris, position X/Y', make: () => ({ src: '', embed: '', width: 200, alt: T('illus'), x: 0, y: 0, link: '', rotate: 0 }) },
+  freeimg:  { label: 'Image libre',  hint: 'Déplaçable, intégrable dans un bloc, devant / derrière', make: () => ({ src: '', embed: '', width: 200, height: 0, alt: T('illus'), x: 0, y: 0, link: '', host: '', layer: 'front' }) },
   floatimg: { label: 'Image + texte', hint: 'Image flottante, texte qui l’entoure', make: () => ({ src: '', embed: '', width: 220, alt: T('illus'), side: 'left', frame: true, caption: '', html: T('hello'), gap: 14 }) },
   screenshot:{ label: 'Capture',     hint: 'Encadré pour screenshot + légende', make: () => ({ src: '', embed: '', width: 520, alt: T('shot'), caption: T('capture') + ' 1 – ' + T('captureDesc'), border: '#C9D2DC', bg: '#F7F9FB', label: '' }) },
   rawhtml:  { label: 'HTML libre',   hint: 'Code HTML inséré tel quel', make: () => ({ html: '<p style="margin:0;font-size:14px;line-height:20px;">' + T('raw') + '</p>' }) },
@@ -472,9 +478,9 @@ function renderBlock(b, edit) {
       return `<tr><td style="padding:8px ${P};"><div${df('html')} style="${FF}font-size:${b.size}px;line-height:${Math.round(b.size * 1.45)}px;color:${S.text};text-align:${b.align};">${v('html')}</div></td></tr>`;
     case 'callout': {
       const c = CALLOUT[b.variant] || CALLOUT.info;
+      // Barre latérale en border-left sur la cellule de contenu : Outlook coupe les cellules étroites séparées (barre "cassée")
       return `<tr><td style="padding:8px ${P};">${T}<tr>` +
-        `<td width="5" bgcolor="${c.border}" style="background-color:${c.border};width:5px;font-size:0;line-height:0;">&nbsp;</td>` +
-        `<td bgcolor="${c.bg}" style="background-color:${c.bg};padding:12px 16px;${FF}font-size:14px;line-height:20px;color:${S.text};">` +
+        `<td bgcolor="${c.bg}" style="background-color:${c.bg};border-left:5px solid ${c.border};padding:12px 16px;${FF}font-size:14px;line-height:20px;color:${S.text};">` +
         `<strong style="color:${c.border};">${c.icon} ${calloutLabel(b.variant)}${doc.settings.lang === 'fr' ? ' :' : ':'}</strong> <span${df('html')}>${v('html')}</span></td></tr></table></td></tr>`;
     }
     case 'steps': {
@@ -485,8 +491,15 @@ function renderBlock(b, edit) {
         const col = VAR[s.variant] || b.badgeColor || brand;
         const tcol = b.titleColor || brand;
         const fs = lab.length > 2 ? Math.max(10, Math.round(sz * 0.4)) : Math.round(sz * 0.5);
+        const txtCol = b.badgeText || '#FFFFFF';
+        const htmlBadge = `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td width="${sz}" height="${sz}" align="center" valign="middle" bgcolor="${col}" style="background-color:${col};width:${sz}px;height:${sz}px;${b.shape === 'square' ? 'border-radius:4px;' : `border-radius:${Math.round(sz / 2)}px;`}color:${txtCol};${FF}font-size:${fs}px;line-height:${sz}px;font-weight:bold;"${edit ? ' title="Numéro : modifiable dans Propriétés"' : ''}>${lab}</td></tr></table>`;
+        // Outlook ignore border-radius : la pastille est dessinée en VML (v:oval / v:roundrect)
+        const vml = b.shape === 'square'
+          ? `<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" arcsize="15%" fillcolor="${col}" strokecolor="${col}" style="width:${sz}px;height:${sz}px;v-text-anchor:middle;"><w:anchorlock/><center style="color:${txtCol};${FF}font-size:${fs}px;font-weight:bold;">${lab}</center></v:roundrect>`
+          : `<v:oval xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" fillcolor="${col}" strokecolor="${col}" style="width:${sz}px;height:${sz}px;v-text-anchor:middle;"><w:anchorlock/><center style="color:${txtCol};${FF}font-size:${fs}px;font-weight:bold;">${lab}</center></v:oval>`;
+        const badge = edit ? htmlBadge : `<!--[if mso]>${vml}<![endif]--><!--[if !mso]><!-->${htmlBadge}<!--<![endif]-->`;
         return `<tr>` +
-        (lab === '' ? '' : `<td width="${sz + 10}" valign="top" style="padding:10px 0;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td width="${sz}" height="${sz}" align="center" valign="middle" bgcolor="${col}" style="background-color:${col};width:${sz}px;height:${sz}px;${b.shape === 'square' ? 'border-radius:4px;' : `border-radius:${Math.round(sz / 2)}px;`}color:${b.badgeText || '#FFFFFF'};${FF}font-size:${fs}px;line-height:${sz}px;font-weight:bold;"${edit ? ' title="Numéro : modifiable dans Propriétés"' : ''}>${lab}</td></tr></table></td>`) +
+        (lab === '' ? '' : `<td width="${sz + 10}" valign="top" style="padding:10px 0;">${badge}</td>`) +
         `<td valign="top" style="padding:10px 0 10px ${lab === '' ? 0 : 10}px;${FF}font-size:14px;line-height:20px;color:${S.text};${b.separators !== false && i < n - 1 ? 'border-bottom:1px solid #E3E3E3;' : ''}">` +
         `<div${df('steps.' + i + '.title')} style="font-weight:bold;color:${VAR[s.variant] || tcol};padding-bottom:2px;">${v('steps.' + i + '.title')}</div>` +
         `<div${df('steps.' + i + '.html')}>${v('steps.' + i + '.html')}</div></td></tr>`; }).join('');
@@ -547,7 +560,7 @@ function renderBlock(b, edit) {
         `<td width="50%" valign="top" style="padding-right:10px;${FF}font-size:14px;line-height:20px;color:${S.text};"><div${df('left')}>${v('left')}</div></td>` +
         `<td width="50%" valign="top" style="padding-left:10px;${FF}font-size:14px;line-height:20px;color:${S.text};"><div${df('right')}>${v('right')}</div></td></tr></table></td></tr>`;
     case 'divider':
-      return `<tr><td style="padding:10px ${P};">${T}<tr><td height="1" bgcolor="${b.color}" style="background-color:${b.color};height:1px;font-size:0;line-height:0;">&nbsp;</td></tr></table></td></tr>`;
+      return `<tr><td style="padding:10px ${P} 0 ${P};">${T}<tr><td style="border-top:1px solid ${b.color};font-size:0;line-height:0;padding:0 0 10px 0;">&nbsp;</td></tr></table></td></tr>`;
     case 'spacer':
       return `<tr><td height="${b.height}" style="height:${b.height}px;font-size:0;line-height:0;">&nbsp;</td></tr>`;
     case 'signature':
@@ -560,13 +573,39 @@ function renderBlock(b, edit) {
   return '';
 }
 
+/* ------------------------------------------------------- Images libres intégrées à un bloc (calques) */
+const hostedOf = id => doc.blocks.filter(x => x.type === 'freeimg' && x.host === id);
+const blockLabelOf = b => { const t = stripTags(b.title || b.text || b.caption || b.label || (b.type === 'rawhtml' ? '' : b.html) || (b.steps ? b.steps[0]?.title : '') || b.left || (b.headers ? b.headers.join(' | ') : '') || '').slice(0, 30); return BLOCKS[b.type].label + (t ? ' · ' + t : ''); };
+function withOverlays(rowHtml, overlays, edit) {
+  if (!overlays.length) return rowHtml;
+  const hasBack = overlays.some(o => o.layer === 'back');
+  const inner = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"${hasBack && !edit ? ' style="position:relative;z-index:1;"' : ''}>${rowHtml}</table>`;
+  const ov = overlays.map(o => {
+    const src = o.embed || o.src, w = Number(o.width) || 100;
+    const h = o.natW ? Math.round(w * o.natH / o.natW) : (Number(o.height) || w);
+    const x = Math.max(0, Number(o.x) || 0), y = Math.max(0, Number(o.y) || 0), front = o.layer !== 'back';
+    if (edit) {
+      return `<div class="ov${o.id === selectedId ? ' sel' : ''}${front ? '' : ' back'}" data-ovid="${o.id}" style="left:${x}px;top:${y}px;width:${w}px;z-index:${front ? 6 : 5};">` +
+        (src ? `<img src="${esc(src)}" width="${w}" alt="" style="display:block;width:${w}px;height:auto;">` : `<div class="ph" style="width:${w}px;padding:10px">Image</div>`) +
+        `<span class="lay">${front ? 'devant' : 'derrière'} · X ${x} · Y ${y}</span></div>`;
+    }
+    if (!src) return '';
+    const img = `<img src="${esc(src)}" width="${w}" height="${h}" alt="${esc(o.alt || '')}" style="display:block;border:0;width:${w}px;height:${h}px;">`;
+    const link = o.link ? `<a href="${esc(o.link)}" target="_blank">${img}</a>` : img;
+    // Outlook : forme VML positionnée (z-index négatif = derrière le texte) ; autres clients : div positionné
+    return `<!--[if mso]><v:image xmlns:v="urn:schemas-microsoft-com:vml" src="${esc(src)}" style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;z-index:${front ? 251 : -251};mso-position-horizontal-relative:text;mso-position-vertical-relative:text;" /><![endif]-->` +
+      `<!--[if !mso]><!--><div style="position:absolute;left:${x}px;top:${y}px;width:${w}px;z-index:${front ? 5 : 0};">${link}</div><!--<![endif]-->`;
+  }).join('');
+  return `<tr><td style="padding:0;position:relative;">${ov}${inner}</td></tr>`;
+}
+
 /* ------------------------------------------------------- Export complet */
 function buildHtml(opts = {}) {
   const S = doc.settings;
   if (doc.mode === 'code') return doc.codeHtml || '';
   const meta = opts.withMeta ? `<!--MTS_DOC:${b64enc(JSON.stringify(doc))}-->\n` : '';
   // line-height figée pour le moteur Word (évite les interlignes aléatoires d'Outlook)
-  const rows = doc.blocks.map(b => renderBlock(b, false)).join('\n').replace(/line-height:(\d+)px;(?!mso)/g, 'line-height:$1px;mso-line-height-rule:exactly;');
+  const rows = doc.blocks.filter(b => !(b.type === 'freeimg' && b.host)).map(b => withOverlays(renderBlock(b, false), hostedOf(b.id), false)).join('\n').replace(/line-height:(\d+)px;(?!mso)/g, 'line-height:$1px;mso-line-height-rule:exactly;');
   const pre = S.preheader ? `<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">${esc(S.preheader)}</div>` : '';
   return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" lang="fr">
@@ -646,6 +685,7 @@ function audit(html) {
   }
   const kb = new Blob([html]).size / 1024;
   if (kb > 100) add('warn', 'Mail volumineux', `${kb.toFixed(0)} Ko : Gmail tronque au-delà de 102 Ko.`);
+  if (/<td[^>]*width="[1-8]"[^>]*bgcolor=/i.test(html)) add('warn', 'Barre verticale en cellule étroite', 'Outlook coupe les cellules de quelques pixels servant de barre colorée. Utilisez border-left sur la cellule de contenu (le bloc Encadré le fait).');
   if (/<script|<link\s/i.test(html)) add('err', 'Script ou CSS externe', 'Supprimés par tous les clients mail.');
   if (/<img\b(?![^>]*\bheight=)[^>]*>/i.test(html) && doc.mode !== 'code') add('info', 'Images sans hauteur explicite', 'Pour les images en chemin/URL, Outlook réserve la place seulement une fois l\'image chargée. Les images collées/incorporées ont leur hauteur calculée automatiquement.');
   add('info', 'Mode sombre Outlook', 'Outlook Windows inverse les fonds clairs en mode sombre : bandeaux et encadrés deviennent sombres avec texte clair (voir Aperçu > Mode sombre). Comportement normal ; les couleurs vives et les images ne sont pas modifiées.');
@@ -673,7 +713,7 @@ function renderCanvas() {
     c.innerHTML = `<div id="canvasEmpty"><b>Le mail est vide</b>Ajoutez des blocs depuis la colonne de gauche ou partez d'un modèle prêt.</div>`;
     return;
   }
-  const rows = doc.blocks.map(b => `<tbody class="blk${b.id === selectedId ? ' sel' : ''}" data-id="${b.id}">${renderBlock(b, true)}
+  const rows = doc.blocks.filter(b => !(b.type === 'freeimg' && b.host)).map(b => `<tbody class="blk${b.id === selectedId ? ' sel' : ''}" data-id="${b.id}">${withOverlays(renderBlock(b, true), hostedOf(b.id), true)}
     <tr class="toolsRow"><td style="padding:0;height:0;position:relative;"><div class="tools">
       <button title="Glisser pour déplacer le bloc" class="grip">⋮⋮</button><button title="Monter" data-act="up">▲</button><button title="Descendre" data-act="down">▼</button>
       <button title="Dupliquer" data-act="dup">⧉</button><button title="Supprimer" data-act="del" class="danger">✕</button></div></td></tr></tbody>`).join('');
@@ -725,7 +765,7 @@ function renderStructure() {
   if (doc.mode === 'code') { ul.innerHTML = '<li class="empty">Mode code complet : la structure par blocs est inactive. Repassez en Visuel pour convertir le code en blocs.</li>'; return; }
   if (!doc.blocks.length) { ul.innerHTML = '<li class="empty">Aucun bloc</li>'; return; }
   ul.innerHTML = doc.blocks.map(b => {
-    const lab = BLOCKS[b.type].label;
+    const lab = (b.type === 'freeimg' && b.host ? '↳ ' : '') + BLOCKS[b.type].label + (b.type === 'freeimg' && b.host ? ` (${b.layer === 'back' ? 'derrière' : 'devant'} · ${blockLabelOf(doc.blocks.find(x => x.id === b.host) || { type: 'text', html: '' })})` : '');
     const txt = stripTags(b.title || b.text || b.caption || b.label || (b.type === 'rawhtml' ? '' : b.html) || (b.steps ? b.steps[0]?.title : '') || b.left || (b.headers ? b.headers.join(' | ') : '') || b.alt || '').slice(0, 40);
     return `<li draggable="true" data-id="${b.id}" class="${b.id === selectedId ? 'sel' : ''}"><span class="grip">⋮⋮</span><span class="t"><b>${lab}</b>${txt ? ' · ' + esc(txt) : ''}</span></li>`;
   }).join('');
@@ -752,7 +792,7 @@ const PROPS = {
   steps:  [ ['numbering','Numérotation','select',['number|1, 2, 3','dotted|1., 2., 3.','letter|A, B, C','roman|I, II, III','none|Sans pastille']], ['start','Commencer à','number'], ['shape','Forme de la pastille','select',['round|Ronde','square|Carrée']], ['size','Taille de la pastille (px)','number'], ['badgeColor','Couleur de la pastille (vide = principale)','color'], ['badgeText','Couleur du numéro','color'], ['titleColor','Couleur des titres d\'étape (vide = principale)','color'], ['separators','Lignes de séparation','check'] ],
   button: [ ['label','Texte du bouton','text'], ['url','Lien (https://… ou mailto:)','text'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite']], ['width','Largeur (px)','number'], ['height','Hauteur (px)','number'], ['color','Couleur de fond (vide = principale)','color'], ['textColor','Couleur du texte','color'] ],
   image:  [ ['src','Chemin ou URL de l\'image','image'], ['embed','','embed'], ['width','Largeur (px)','number'], ['alt','Texte alternatif','text'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite']], ['link','Lien au clic (facultatif)','text'] ],
-  freeimg:[ ['src','Chemin ou URL de l\'image','image'], ['embed','','embed'], ['width','Largeur (px)','number'], ['x','Décalage horizontal X (px)','number'], ['y','Décalage vertical Y (px)','number'], ['alt','Texte alternatif','text'], ['link','Lien au clic (facultatif)','text'] ],
+  freeimg:[ ['src','Chemin ou URL de l\'image','image'], ['embed','','embed'], ['width','Largeur (px)','number'], ['height','Hauteur (px, pour Outlook si image par chemin ; 0 = auto)','number'], ['host','Intégrer dans le bloc','hostsel'], ['layer','Niveau','select',['front|Devant (par-dessus le contenu)','back|Derrière (en arrière-plan du contenu)']], ['x','Position X (px)','number'], ['y','Position Y (px)','number'], ['alt','Texte alternatif','text'], ['link','Lien au clic (facultatif)','text'] ],
   floatimg:[ ['src','Chemin ou URL de l\'image','image'], ['embed','','embed'], ['width','Largeur de l\'image (px)','number'], ['side','Côté','select',['left|Image à gauche','right|Image à droite']], ['gap','Espace image / texte (px)','number'], ['frame','Cadre autour de l\'image','check'], ['alt','Texte alternatif','text'], ['caption','Légende sous l\'image','text'] ],
   screenshot:[ ['src','Chemin ou URL de la capture','image'], ['embed','','embed'], ['width','Largeur (px)','number'], ['alt','Texte alternatif','text'], ['label','Étiquette au-dessus (facultatif)','text'], ['caption','Légende','text'], ['border','Couleur du cadre','color'], ['bg','Fond du cadre','color'] ],
   rawhtml:[ ['html','Code HTML du bloc','textarea'] ],
@@ -778,6 +818,7 @@ function renderProps() {
     else if (type === 'check') h += `<div class="row"><input type="checkbox" data-key="${key}" ${val ? 'checked' : ''} style="width:auto;flex:0"><span style="color:var(--muted);font-size:12px">${val ? 'Oui' : 'Non'}</span></div>`;
     else if (type === 'color') h += `<div class="row"><input type="color" data-key="${key}" data-color="1" value="${/^#[0-9a-f]{6}$/i.test(val) ? val : '#000000'}"><input type="text" data-key="${key}" value="${esc(val)}" placeholder="#RRGGBB"></div>`;
     else if (type === 'select') h += `<select data-key="${key}">${opts.map(o => { const [v, l] = o.split('|'); return `<option value="${v}" ${v == val ? 'selected' : ''}>${l}</option>`; }).join('')}</select>`;
+    else if (type === 'hostsel') h += `<select data-key="host"><option value="">— Autonome (ligne à part) —</option>${doc.blocks.filter(x => x.id !== b.id && !(x.type === 'freeimg')).map(x => `<option value="${x.id}" ${x.id === val ? 'selected' : ''}>${esc(blockLabelOf(x))}</option>`).join('')}</select><div class="kv">Vous pouvez aussi glisser l'image directement sur un bloc du mail.</div><div class="btnrow"><button class="sm" data-layer="back" ${val ? '' : 'disabled'}>Reculer (derrière)</button><button class="sm" data-layer="front" ${val ? '' : 'disabled'}>Avancer (devant)</button></div>`;
     else if (type === 'textarea') h += `<textarea data-key="${key}" rows="10" class="srcField" style="border-style:solid" spellcheck="false">${esc(val)}</textarea>`;
     else if (type === 'embed') h += (val
       ? `<div class="note">Image incorporée dans le modèle (${(val.length * 0.75 / 1024).toFixed(0)} Ko).</div><div class="btnrow"><button class="sm" data-embed="dl">Télécharger en PNG</button><button class="sm danger" data-embed="rm">Retirer</button></div>`
@@ -806,13 +847,15 @@ $('#propsBody').addEventListener('input', e => {
   if (el.dataset.color) { const twin = el.parentElement.querySelector('input[type=text]'); if (twin) twin.value = val; }
   else if (el.type === 'text' && el.parentElement.querySelector('input[type=color]')) { const cp = el.parentElement.querySelector('input[type=color]'); if (/^#[0-9a-f]{6}$/i.test(val)) cp.value = val; }
   b[key] = val;
-  commit({ canvas: true, structure: true, props: el.type === 'checkbox' || (b.type === 'steps' && (key === 'numbering' || key === 'start')) });
+  if (key === 'host' && val) { const from = doc.blocks.indexOf(b); doc.blocks.splice(from, 1); const hi = doc.blocks.findIndex(x => x.id === val); doc.blocks.splice(hi + 1, 0, b); }
+  commit({ canvas: true, structure: true, props: el.type === 'checkbox' || key === 'host' || key === 'layer' || (b.type === 'steps' && (key === 'numbering' || key === 'start')) });
 });
 $('#propsBody').addEventListener('click', e => {
   const btn = e.target.closest('button'); if (!btn) return;
   const b = doc.blocks.find(x => x.id === selectedId);
   if (btn.dataset.act) return blockAction(selectedId, btn.dataset.act);
   if (!b) return;
+  if (btn.dataset.layer) { b.layer = btn.dataset.layer; commit({ canvas: true, structure: true, props: true }); return; }
   if (btn.dataset.pick) return pickImage(v => { b[btn.dataset.pick] = v; b.embed = ''; b.natW = b.natH = 0; commit({ canvas: true, props: true }); });
   if (btn.dataset.embed === 'paste') return pasteImageFromClipboard();
   if (btn.dataset.embed === 'file') { const inp = $('#fileImg'); inp.onchange = () => { const f = inp.files[0]; inp.value = ''; if (!f) return; const r = new FileReader(); r.onload = () => { b.embed = r.result; b.src = ''; measureImage(b, r.result); commit({ canvas: true, props: true }); }; r.readAsDataURL(f); }; return inp.click(); }
@@ -862,13 +905,13 @@ function blockAction(id, act) {
   if (act === 'up' && i > 0) [doc.blocks[i - 1], doc.blocks[i]] = [doc.blocks[i], doc.blocks[i - 1]];
   if (act === 'down' && i < doc.blocks.length - 1) [doc.blocks[i + 1], doc.blocks[i]] = [doc.blocks[i], doc.blocks[i + 1]];
   if (act === 'dup') { const c = clone(doc.blocks[i]); c.id = uid(); doc.blocks.splice(i + 1, 0, c); selectedId = c.id; }
-  if (act === 'del') { doc.blocks.splice(i, 1); selectedId = doc.blocks[Math.min(i, doc.blocks.length - 1)]?.id || null; }
+  if (act === 'del') { doc.blocks.filter(x => x.type === 'freeimg' && x.host === id).forEach(x => { x.host = ''; }); doc.blocks.splice(i, 1); selectedId = doc.blocks[Math.min(i, doc.blocks.length - 1)]?.id || null; }
   commit({ canvas: true, structure: true, props: true });
 }
 function selectBlock(id, rerenderCanvas = true) {
   selectedId = id;
   if (rerenderCanvas) renderCanvas();
-  else $$('.blk').forEach(el => el.classList.toggle('sel', el.dataset.id === id));
+  else { $$('.blk').forEach(el => el.classList.toggle('sel', el.dataset.id === id)); $$('.ov').forEach(el => el.classList.toggle('sel', el.dataset.ovid === id)); }
   renderStructure(); renderProps();
   showTab('props');
 }
@@ -990,19 +1033,34 @@ function downloadEmbedded(dataUrl, name) {
     if (doc.mode === 'code' || e.button !== 0) return;
     const grip = e.target.closest('.tools .grip');
     const handle = e.target.closest('.freeimg-handle');
-    if (!grip && !handle) return;
+    const ovEl = e.target.closest('.ov');
+    if (!grip && !handle && !ovEl) return;
     const blk = e.target.closest('.blk'); if (!blk) return;
-    const b = doc.blocks.find(x => x.id === blk.dataset.id); if (!b) return;
+    const id = ovEl ? ovEl.dataset.ovid : blk.dataset.id;
+    const b = doc.blocks.find(x => x.id === id); if (!b) return;
     e.preventDefault();
-    if (blk.dataset.id !== selectedId) selectBlock(blk.dataset.id, false);
-    drag = grip
-      ? { kind: 'block', id: b.id, el: blk, target: null, after: false }
-      : { kind: 'img', id: b.id, el: blk, handle, x0: e.clientX, y0: e.clientY, bx: Number(b.x) || 0, by: Number(b.y) || 0, moved: false, pos: blk.querySelector('.freeimg-pos') };
+    if (id !== selectedId) selectBlock(id, false);
+    if (grip) drag = { kind: 'block', id: b.id, el: blk, target: null, after: false };
+    else if (ovEl) drag = { kind: 'ov', id: b.id, el: ovEl, hostEl: blk, x0: e.clientX, y0: e.clientY, bx: Number(b.x) || 0, by: Number(b.y) || 0, moved: false, target: null };
+    else drag = { kind: 'img', id: b.id, el: blk, handle, x0: e.clientX, y0: e.clientY, bx: Number(b.x) || 0, by: Number(b.y) || 0, moved: false, pos: blk.querySelector('.freeimg-pos') };
     document.body.classList.add('dragging-img');
     if (grip) blk.classList.add('dragging');
   });
+  const hostTargetAt = (x, y, exceptId) => { const over = blockAt(x, y); return over && over.dataset.id !== exceptId && doc.blocks.find(b => b.id === over.dataset.id)?.type !== 'freeimg' ? over : null; };
   document.addEventListener('mousemove', e => {
     if (!drag) return;
+    if (drag.kind === 'ov') {
+      const b = doc.blocks.find(x => x.id === drag.id); if (!b) return;
+      b.x = Math.max(0, Math.round(drag.bx + (e.clientX - drag.x0))); b.y = Math.max(0, Math.round(drag.by + (e.clientY - drag.y0))); drag.moved = true;
+      drag.el.style.left = b.x + 'px'; drag.el.style.top = b.y + 'px';
+      const lay = drag.el.querySelector('.lay'); if (lay) lay.textContent = `${b.layer === 'back' ? 'derrière' : 'devant'} · X ${b.x} · Y ${b.y}`;
+      $$('.blk').forEach(x => x.classList.remove('host-target'));
+      const hostR = drag.hostEl.getBoundingClientRect();
+      const outside = e.clientY < hostR.top - 10 || e.clientY > hostR.bottom + 10;
+      drag.target = null;
+      if (outside) { const t = hostTargetAt(e.clientX, e.clientY, drag.id); if (t && t !== drag.hostEl) { t.classList.add('host-target'); drag.target = t; } else drag.target = 'detach'; }
+      return;
+    }
     if (drag.kind === 'img') {
       const b = doc.blocks.find(x => x.id === drag.id); if (!b) return;
       const usable = doc.settings.width - 2 * (doc.settings.pad ?? 28);
@@ -1011,11 +1069,10 @@ function downloadEmbedded(dataUrl, name) {
       b.x = Math.round(nx); b.y = Math.round(ny); drag.moved = true;
       const td = drag.handle.closest('td'); td.style.padding = `${b.y}px 0 0 ${(doc.settings.pad ?? 28) + b.x}px`;
       if (drag.pos) { drag.pos.style.display = 'block'; drag.pos.textContent = `X ${b.x} · Y ${b.y}`; }
-      // Sortie du bloc vers le haut/bas : signale le bloc cible pour changer de place
-      const over = blockAt(e.clientX, e.clientY);
-      $$('.blk').forEach(x => x.classList.remove('drop-before', 'drop-after'));
-      if (over && over !== drag.el) { const r = over.getBoundingClientRect(); drag.target = over.dataset.id; drag.after = e.clientY > r.top + r.height / 2; over.classList.add(drag.after ? 'drop-after' : 'drop-before'); }
-      else drag.target = null;
+      // Déposée sur un autre bloc : l'image s'intègre dans ce bloc (calque)
+      $$('.blk').forEach(x => x.classList.remove('host-target'));
+      const t = hostTargetAt(e.clientX, e.clientY, drag.id);
+      if (t && t !== drag.el) { t.classList.add('host-target'); drag.target = t; } else drag.target = null;
       return;
     }
     const over = blockAt(e.clientX, e.clientY);
@@ -1023,12 +1080,25 @@ function downloadEmbedded(dataUrl, name) {
     if (over && over !== drag.el) { const r = over.getBoundingClientRect(); drag.target = over.dataset.id; drag.after = e.clientY > r.top + r.height / 2; over.classList.add(drag.after ? 'drop-after' : 'drop-before'); }
     else drag.target = null;
   });
-  document.addEventListener('mouseup', () => {
+  document.addEventListener('mouseup', e => {
     if (!drag) return;
     document.body.classList.remove('dragging-img');
-    $$('.blk').forEach(x => x.classList.remove('drop-before', 'drop-after', 'dragging'));
+    $$('.blk').forEach(x => x.classList.remove('drop-before', 'drop-after', 'dragging', 'host-target'));
     const d = drag; drag = null;
-    if (d.target) {
+    const b = doc.blocks.find(x => x.id === d.id);
+    const hostInto = (hostEl) => {
+      const r = hostEl.getBoundingClientRect();
+      b.host = hostEl.dataset.id; b.x = Math.max(0, Math.round(e.clientX - r.left - b.width / 2)); b.y = Math.max(0, Math.round(e.clientY - r.top - (b.natW ? b.width * b.natH / b.natW : b.width) / 2));
+      const from = doc.blocks.indexOf(b); doc.blocks.splice(from, 1); const hi = doc.blocks.findIndex(x => x.id === b.host); doc.blocks.splice(hi + 1, 0, b);
+      selectedId = b.id; commit({ canvas: true, structure: true, props: true }); toast('Image intégrée au bloc (' + (b.layer === 'back' ? 'derrière' : 'devant') + ')');
+    };
+    if (d.kind === 'ov') {
+      if (d.target === 'detach') { b.host = ''; b.x = 0; b.y = 0; commit({ canvas: true, structure: true, props: true }); toast('Image détachée : ligne à part'); return; }
+      if (d.target) { hostInto(d.target); return; }
+      if (d.moved) commit({ canvas: true, props: true }); return;
+    }
+    if (d.kind === 'img' && d.target && b) { hostInto(d.target); return; }
+    if (d.kind === 'block' && d.target) {
       const from = doc.blocks.findIndex(x => x.id === d.id); const [m] = doc.blocks.splice(from, 1);
       let to = doc.blocks.findIndex(x => x.id === d.target); if (d.after) to++;
       doc.blocks.splice(to, 0, m); selectedId = m.id;
@@ -1275,6 +1345,8 @@ $('#palette').addEventListener('click', e => { const b = e.target.closest('butto
 $('#canvas').addEventListener('click', e => {
   const tb = e.target.closest('.tools button');
   if (tb) { e.preventDefault(); return blockAction(tb.closest('.blk').dataset.id, tb.dataset.act); }
+  const ov = e.target.closest('.ov');
+  if (ov) { if (ov.dataset.ovid !== selectedId) selectBlock(ov.dataset.ovid, false); return; }
   const blk = e.target.closest('.blk');
   if (blk && blk.dataset.id !== selectedId) selectBlock(blk.dataset.id, false);
 });
