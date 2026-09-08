@@ -80,6 +80,13 @@
   .blk .tools button{padding:3px 6px;font-size:12px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.12)}
   [contenteditable]{min-height:1em;cursor:text}
   [contenteditable]:empty::before{content:"Saisir le texte…";color:#A0A8B4}
+  .blk.drop-before{box-shadow:inset 0 3px 0 var(--accent)} .blk.drop-after{box-shadow:inset 0 -3px 0 var(--accent)}
+  .blk .tools .grip{cursor:grab;color:#7A8797;font-weight:bold}
+  .blk.dragging{opacity:.5}
+  .freeimg-handle{cursor:move;outline:2px dashed transparent;outline-offset:2px}
+  .blk.sel .freeimg-handle{outline-color:var(--accent)}
+  .freeimg-pos{position:absolute;left:6px;top:6px;background:var(--ink);color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;pointer-events:none;display:none}
+  body.dragging-img{user-select:none;cursor:move}
   .ph{border:2px dashed #C7D0DB;color:#7A8797;padding:24px;text-align:center;font-size:12px}
   .srcField{display:block;width:100%;min-height:64px;font:12px/1.5 Consolas,"Cascadia Mono",monospace;color:#1B2A41;background:#FBFCFE;border:1px dashed #9FB3C8;border-radius:4px;padding:6px 8px;resize:vertical;white-space:pre-wrap}
   .rawView{outline:1px dotted #9FB3C8;outline-offset:2px}
@@ -377,6 +384,7 @@ const BLOCKS = {
   steps:    { label: 'Étapes',       hint: 'Procédure numérotée', make: () => ({ numbering: 'number', start: 1, shape: 'round', size: 28, badgeColor: '', badgeText: '#FFFFFF', separators: true, titleColor: '', steps: [ { title: T('step') + ' 1', html: T('stepDesc'), label: '', variant: 'normal' }, { title: T('step') + ' 2', html: T('desc'), label: '', variant: 'normal' }, { title: T('step') + ' 3', html: T('desc'), label: '', variant: 'normal' } ] }) },
   button:   { label: 'Bouton',       hint: 'Lien cliquable (VML Outlook)', make: () => ({ label: T('btn'), url: 'https://', align: 'center', width: 220, height: 42, color: '', textColor: '#FFFFFF' }) },
   image:    { label: 'Image',        hint: 'Logo, illustration', make: () => ({ src: '', embed: '', width: 540, alt: T('illus'), align: 'center', link: '' }) },
+  freeimg:  { label: 'Image libre',  hint: 'Déplaçable à la souris, position X/Y', make: () => ({ src: '', embed: '', width: 200, alt: T('illus'), x: 0, y: 0, link: '', rotate: 0 }) },
   floatimg: { label: 'Image + texte', hint: 'Image flottante, texte qui l’entoure', make: () => ({ src: '', embed: '', width: 220, alt: T('illus'), side: 'left', frame: true, caption: '', html: T('hello'), gap: 14 }) },
   screenshot:{ label: 'Capture',     hint: 'Encadré pour screenshot + légende', make: () => ({ src: '', embed: '', width: 520, alt: T('shot'), caption: T('capture') + ' 1 – ' + T('captureDesc'), border: '#C9D2DC', bg: '#F7F9FB', label: '' }) },
   rawhtml:  { label: 'HTML libre',   hint: 'Code HTML inséré tel quel', make: () => ({ html: '<p style="margin:0;font-size:14px;line-height:20px;">' + T('raw') + '</p>' }) },
@@ -508,6 +516,14 @@ function renderBlock(b, edit) {
         `<tr><td style="padding:6px;">${img}</td></tr>` +
         `<tr><td align="center" style="padding:0 8px 8px 8px;${FF}font-size:12px;line-height:16px;font-style:italic;color:#666666;"><div${df('caption')}>${v('caption')}</div></td></tr></table></td></tr>`;
     }
+    case 'freeimg': {
+      const src = b.embed || b.src, x = Math.max(0, Number(b.x) || 0), y = Math.max(0, Number(b.y) || 0);
+      let img = src ? imgTag(src, b.width, b.alt, '', b) : (edit ? `<div class="ph" style="width:${b.width}px">Image libre : collez (Ctrl+V) ou indiquez un chemin, puis déplacez-la à la souris</div>` : '');
+      if (b.link && !edit && src) img = `<a href="${esc(b.link)}" target="_blank" style="text-decoration:none;">${img}</a>`;
+      if (edit) img = `<div class="freeimg-handle" style="display:inline-block;">${img}</div><div class="freeimg-pos"></div>`;
+      // Position obtenue par marges internes : compatible Outlook (pas de position:absolute)
+      return `<tr><td style="padding:${y}px 0 0 ${(S.pad ?? 28) + x}px;${edit ? 'position:relative;' : ''}" align="left">${img}</td></tr>`;
+    }
     case 'floatimg': {
       const src = b.embed || b.src, side = b.side === 'right' ? 'right' : 'left', gap = Number(b.gap) || 14;
       const img = src ? imgTag(src, b.width, b.alt, '', b) : (edit ? `<div class="ph" style="width:${b.width}px">Image flottante : collez (Ctrl+V) ou indiquez un chemin</div>` : '');
@@ -615,7 +631,7 @@ function audit(html) {
   });
   doc.blocks.forEach(b => {
     if (b.type === 'button' && (!b.url || b.url === 'https://' || b.url === '#')) add('err', 'Bouton sans lien', `Le bouton « ${stripTags(b.label)} » n'a pas d'URL.`);
-    if ((b.type === 'image' || b.type === 'screenshot' || b.type === 'floatimg') && !b.src && !b.embed) add('warn', BLOCKS[b.type].label + ' sans image', 'Collez une capture (Ctrl+V) ou indiquez un chemin.');
+    if ((b.type === 'image' || b.type === 'screenshot' || b.type === 'floatimg' || b.type === 'freeimg') && !b.src && !b.embed) add('warn', BLOCKS[b.type].label + ' sans image', 'Collez une capture (Ctrl+V) ou indiquez un chemin.');
     if (b.type === 'rawhtml' && /<(div|table)[^>]*style="[^"]*(flex|grid|float)/i.test(b.html)) add('err', 'HTML libre non conforme', 'Le bloc HTML libre utilise flex/grid/float.');
   });
   const txt = stripTags(html);
@@ -659,7 +675,7 @@ function renderCanvas() {
   }
   const rows = doc.blocks.map(b => `<tbody class="blk${b.id === selectedId ? ' sel' : ''}" data-id="${b.id}">${renderBlock(b, true)}
     <tr class="toolsRow"><td style="padding:0;height:0;position:relative;"><div class="tools">
-      <button title="Monter" data-act="up">▲</button><button title="Descendre" data-act="down">▼</button>
+      <button title="Glisser pour déplacer le bloc" class="grip">⋮⋮</button><button title="Monter" data-act="up">▲</button><button title="Descendre" data-act="down">▼</button>
       <button title="Dupliquer" data-act="dup">⧉</button><button title="Supprimer" data-act="del" class="danger">✕</button></div></td></tr></tbody>`).join('');
   c.innerHTML = `<table width="100%" cellpadding="0" cellspacing="0" border="0">${rows}</table>`;
   c.querySelectorAll('[data-field]').forEach(el => {
@@ -736,6 +752,7 @@ const PROPS = {
   steps:  [ ['numbering','Numérotation','select',['number|1, 2, 3','dotted|1., 2., 3.','letter|A, B, C','roman|I, II, III','none|Sans pastille']], ['start','Commencer à','number'], ['shape','Forme de la pastille','select',['round|Ronde','square|Carrée']], ['size','Taille de la pastille (px)','number'], ['badgeColor','Couleur de la pastille (vide = principale)','color'], ['badgeText','Couleur du numéro','color'], ['titleColor','Couleur des titres d\'étape (vide = principale)','color'], ['separators','Lignes de séparation','check'] ],
   button: [ ['label','Texte du bouton','text'], ['url','Lien (https://… ou mailto:)','text'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite']], ['width','Largeur (px)','number'], ['height','Hauteur (px)','number'], ['color','Couleur de fond (vide = principale)','color'], ['textColor','Couleur du texte','color'] ],
   image:  [ ['src','Chemin ou URL de l\'image','image'], ['embed','','embed'], ['width','Largeur (px)','number'], ['alt','Texte alternatif','text'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite']], ['link','Lien au clic (facultatif)','text'] ],
+  freeimg:[ ['src','Chemin ou URL de l\'image','image'], ['embed','','embed'], ['width','Largeur (px)','number'], ['x','Décalage horizontal X (px)','number'], ['y','Décalage vertical Y (px)','number'], ['alt','Texte alternatif','text'], ['link','Lien au clic (facultatif)','text'] ],
   floatimg:[ ['src','Chemin ou URL de l\'image','image'], ['embed','','embed'], ['width','Largeur de l\'image (px)','number'], ['side','Côté','select',['left|Image à gauche','right|Image à droite']], ['gap','Espace image / texte (px)','number'], ['frame','Cadre autour de l\'image','check'], ['alt','Texte alternatif','text'], ['caption','Légende sous l\'image','text'] ],
   screenshot:[ ['src','Chemin ou URL de la capture','image'], ['embed','','embed'], ['width','Largeur (px)','number'], ['alt','Texte alternatif','text'], ['label','Étiquette au-dessus (facultatif)','text'], ['caption','Légende','text'], ['border','Couleur du cadre','color'], ['bg','Fond du cadre','color'] ],
   rawhtml:[ ['html','Code HTML du bloc','textarea'] ],
@@ -933,7 +950,7 @@ document.addEventListener('paste', e => {
 });
 function setEmbeddedImage(dataUrl) {
   const b = doc.blocks.find(x => x.id === selectedId);
-  if (b && (b.type === 'screenshot' || b.type === 'image' || b.type === 'floatimg')) { b.embed = dataUrl; b.src = ''; measureImage(b, dataUrl); commit({ canvas: true, structure: true, props: true }); toast('Image collée dans le bloc sélectionné'); return; }
+  if (b && (b.type === 'screenshot' || b.type === 'image' || b.type === 'floatimg' || b.type === 'freeimg')) { b.embed = dataUrl; b.src = ''; measureImage(b, dataUrl); commit({ canvas: true, structure: true, props: true }); toast('Image collée dans le bloc sélectionné'); return; }
   const n = doc.blocks.filter(x => x.type === 'screenshot').length + 1;
   const nb = Object.assign({ id: uid(), type: 'screenshot' }, BLOCKS.screenshot.make(), { embed: dataUrl, caption: `${T('capture')} ${n} – ${T('captureDesc')}` });
   const idx = selectedId ? doc.blocks.findIndex(x => x.id === selectedId) + 1 : doc.blocks.length;
@@ -954,7 +971,8 @@ function measureImage(b, dataUrl) {
   im.onload = () => {
     b.natW = im.naturalWidth; b.natH = im.naturalHeight;
     const usable = doc.settings.width - 2 * (doc.settings.pad ?? 28) - (b.type === 'screenshot' ? 14 : 0);
-    if (b.type !== 'floatimg') b.width = Math.min(b.natW, usable);
+    if (b.type === 'freeimg') b.width = Math.min(b.width || b.natW, b.natW, usable);
+    else if (b.type !== 'floatimg') b.width = Math.min(b.natW, usable);
     else b.width = Math.min(b.width, Math.round(usable * 0.6), b.natW);
     commit({ canvas: true, props: true });
   };
@@ -963,6 +981,63 @@ function measureImage(b, dataUrl) {
 function downloadEmbedded(dataUrl, name) {
   const a = document.createElement('a'); a.href = dataUrl; a.download = name; a.click();
 }
+/* ------------------------------------------------------- Déplacement à la souris (blocs et image libre) */
+(function () {
+  const canvas = $('#canvas');
+  let drag = null;
+  const blockAt = (x, y) => { const el = document.elementFromPoint(x, y); return el ? el.closest('.blk') : null; };
+  canvas.addEventListener('mousedown', e => {
+    if (doc.mode === 'code' || e.button !== 0) return;
+    const grip = e.target.closest('.tools .grip');
+    const handle = e.target.closest('.freeimg-handle');
+    if (!grip && !handle) return;
+    const blk = e.target.closest('.blk'); if (!blk) return;
+    const b = doc.blocks.find(x => x.id === blk.dataset.id); if (!b) return;
+    e.preventDefault();
+    if (blk.dataset.id !== selectedId) selectBlock(blk.dataset.id, false);
+    drag = grip
+      ? { kind: 'block', id: b.id, el: blk, target: null, after: false }
+      : { kind: 'img', id: b.id, el: blk, handle, x0: e.clientX, y0: e.clientY, bx: Number(b.x) || 0, by: Number(b.y) || 0, moved: false, pos: blk.querySelector('.freeimg-pos') };
+    document.body.classList.add('dragging-img');
+    if (grip) blk.classList.add('dragging');
+  });
+  document.addEventListener('mousemove', e => {
+    if (!drag) return;
+    if (drag.kind === 'img') {
+      const b = doc.blocks.find(x => x.id === drag.id); if (!b) return;
+      const usable = doc.settings.width - 2 * (doc.settings.pad ?? 28);
+      const nx = Math.max(0, Math.min(usable - b.width, drag.bx + (e.clientX - drag.x0)));
+      const ny = Math.max(0, Math.min(600, drag.by + (e.clientY - drag.y0)));
+      b.x = Math.round(nx); b.y = Math.round(ny); drag.moved = true;
+      const td = drag.handle.closest('td'); td.style.padding = `${b.y}px 0 0 ${(doc.settings.pad ?? 28) + b.x}px`;
+      if (drag.pos) { drag.pos.style.display = 'block'; drag.pos.textContent = `X ${b.x} · Y ${b.y}`; }
+      // Sortie du bloc vers le haut/bas : signale le bloc cible pour changer de place
+      const over = blockAt(e.clientX, e.clientY);
+      $$('.blk').forEach(x => x.classList.remove('drop-before', 'drop-after'));
+      if (over && over !== drag.el) { const r = over.getBoundingClientRect(); drag.target = over.dataset.id; drag.after = e.clientY > r.top + r.height / 2; over.classList.add(drag.after ? 'drop-after' : 'drop-before'); }
+      else drag.target = null;
+      return;
+    }
+    const over = blockAt(e.clientX, e.clientY);
+    $$('.blk').forEach(x => x.classList.remove('drop-before', 'drop-after'));
+    if (over && over !== drag.el) { const r = over.getBoundingClientRect(); drag.target = over.dataset.id; drag.after = e.clientY > r.top + r.height / 2; over.classList.add(drag.after ? 'drop-after' : 'drop-before'); }
+    else drag.target = null;
+  });
+  document.addEventListener('mouseup', () => {
+    if (!drag) return;
+    document.body.classList.remove('dragging-img');
+    $$('.blk').forEach(x => x.classList.remove('drop-before', 'drop-after', 'dragging'));
+    const d = drag; drag = null;
+    if (d.target) {
+      const from = doc.blocks.findIndex(x => x.id === d.id); const [m] = doc.blocks.splice(from, 1);
+      let to = doc.blocks.findIndex(x => x.id === d.target); if (d.after) to++;
+      doc.blocks.splice(to, 0, m); selectedId = m.id;
+      commit({ canvas: true, structure: true, props: true }); return;
+    }
+    if (d.kind === 'img' && d.moved) commit({ canvas: true, props: true });
+  });
+})();
+
 /* ------------------------------------------------------- Modes d'édition */
 function currentMode() { return doc.mode === 'code' ? 'code' : (htmlMode ? 'html' : 'visual'); }
 function applyModeUI() {
