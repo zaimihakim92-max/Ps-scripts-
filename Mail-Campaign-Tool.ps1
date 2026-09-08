@@ -12,7 +12,7 @@
 #                           titres, listes, alignement, liens, tableaux, images par chemin
 #                           ou URL, blocs Info/Attention/Succès/Code, variables, modèles
 #                           "Procédure", "Information", "Maintenance", "Sécurité"),
-#                           vue source HTML, pièces jointes, brouillons.
+#                           vue source HTML, pièces jointes, brouillons, import .msg/.oft Outlook.
 #       4. Signature      : éditeur de signature avec images, sauvegardée dans %APPDATA%.
 #       5. Envoi          : mode "1 mail par destinataire (personnalisé)" ou "Cci par lots",
 #                           délai entre envois, simulation (dry-run), journal coloré,
@@ -265,10 +265,11 @@ function ConvertTo-FileUri {
     return 'file:///' + (($Path -replace '\\', '/') -replace ' ', '%20')
 }
 
-# Remplace les <img src="file:///..."> ou src="C:\..." par des cid: embarqués
+# Remplace les <img src="file:///...">, src="C:\..." ou src="data:image/...;base64," par des cid: embarqués
 function ConvertTo-InlineImages {
     param([string]$Html, [System.Collections.ArrayList]$Resources)
-    $rx = [regex]'(?is)(<img[^>]*?\ssrc\s*=\s*["''])([^"'']+)(["''])'
+    # <img>, mais aussi les formes VML Outlook (<v:image>, <v:fill>) utilisées par Mail-Template-Studio
+    $rx = [regex]'(?is)(<(?:img|v:image|v:fill)\b[^>]*?\ssrc\s*=\s*["''])([^"'']+)(["''])'
     $mc = $rx.Matches($Html)
     if ($mc.Count -eq 0) { return $Html }
     $sb   = New-Object System.Text.StringBuilder
@@ -284,7 +285,23 @@ function ConvertTo-InlineImages {
             $path = $src
         }
         $replacement = $m.Value
-        if ($path -and (Test-Path -LiteralPath $path)) {
+        # Image incorporée en base64 (ex. capture collée dans Mail-Template-Studio) -> embarquée en cid:
+        if ($src -match '^data:(image/[a-z0-9.+\-]+);base64,(.+)$') {
+            $key = 'data:' + $src.GetHashCode()
+            if (-not $known.ContainsKey($key)) {
+                try {
+                    $bytes = [Convert]::FromBase64String($Matches[2])
+                    $ms    = New-Object System.IO.MemoryStream(,$bytes)
+                    $lr    = New-Object System.Net.Mail.LinkedResource($ms, $Matches[1])
+                    $lr.ContentId        = [guid]::NewGuid().ToString('N')
+                    $lr.TransferEncoding = [System.Net.Mime.TransferEncoding]::Base64
+                    [void]$Resources.Add($lr)
+                    $known[$key] = $lr.ContentId
+                } catch { Write-Log "Image base64 illisible : $($_.Exception.Message)" 'WARN' }
+            }
+            if ($known.ContainsKey($key)) { $replacement = $m.Groups[1].Value + 'cid:' + $known[$key] + $m.Groups[3].Value }
+        }
+        elseif ($path -and (Test-Path -LiteralPath $path)) {
             $key = $path.ToLowerInvariant()
             if (-not $known.ContainsKey($key)) {
                 $lr = New-Object System.Net.Mail.LinkedResource($path, (Get-MimeType $path))
@@ -711,6 +728,74 @@ function Initialize-Editor {
 }
 #endregion
 
+#region ================= IMPORT .MSG / .OFT (Outlook) =================
+function Import-OutlookMessage {
+    param([string]$Path)
+    $ol = $null; $item = $null
+    try { $ol = New-Object -ComObject Outlook.Application }
+    catch { Show-Msg "L'import de fichiers .msg / .oft nécessite Outlook installé sur ce poste." 'Import Outlook' 'Warning'; return }
+    try {
+        $ext = [System.IO.Path]::GetExtension($Path).ToLower()
+        if ($ext -eq '.oft') { $item = $ol.CreateItemFromTemplate($Path) }
+        else                 { $item = $ol.Session.OpenSharedItem($Path) }
+        if (-not $item) { throw "Impossible d'ouvrir le fichier." }
+
+        $subject = [string]$item.Subject
+        $html    = [string]$item.HTMLBody
+        if (-not $html -or ($html -replace '<[^>]+>|\s', '') -eq '') {
+            $html = '<p>' + ([System.Net.WebUtility]::HtmlEncode([string]$item.Body) -replace "\r?\n", '<br>') + '</p>'
+        }
+
+        # Images intégrées (cid:) -> extraites dans un dossier temporaire puis référencées par chemin
+        $imgDir = Join-Path $script:TempDir ('msg_' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $imgDir -Force | Out-Null
+        $nbInline = 0; $nbAttach = 0
+        $count = $item.Attachments.Count
+        for ($i = 1; $i -le $count; $i++) {
+            $att = $item.Attachments.Item($i)
+            $name = [string]$att.FileName
+            if (-not $name) { $name = "piece_jointe_$i" }
+            $dest = Join-Path $imgDir $name
+            try { $att.SaveAsFile($dest) } catch { Write-Log "Pièce jointe ignorée ($name) : $($_.Exception.Message)" 'WARN'; continue }
+            $cid = ''
+            try { $cid = [string]$att.PropertyAccessor.GetProperty('http://schemas.microsoft.com/mapi/proptag/0x3712001F') } catch { }
+            if ($cid -and $html -match ('(?i)cid:' + [regex]::Escape($cid))) {
+                $html = $html -replace ('(?i)cid:' + [regex]::Escape($cid)), (ConvertTo-FileUri $dest)
+                $nbInline++
+            } else {
+                $hidden = $false
+                try { $hidden = [bool]$att.PropertyAccessor.GetProperty('http://schemas.microsoft.com/mapi/proptag/0x7FFE000B') } catch { }
+                if (-not $hidden) {
+                    if (-not $lstAttach.Items.Contains($dest)) { [void]$lstAttach.Items.Add($dest) }
+                    $nbAttach++
+                }
+            }
+        }
+
+        # Nettoyage léger du HTML Outlook/Word et conservation des styles de l'en-tête
+        $style = ''
+        if ($html -match '(?is)(<style[^>]*>.*?</style>)') { $style = $Matches[1] -replace '(?is)<!--|-->', '' }
+        $inner = if ($html -match '(?is)<body[^>]*>(.*?)</body>') { $Matches[1] } else { $html }
+        $inner = $inner -replace '(?is)<!--\[if[^\]]*\]>.*?<!\[endif\]-->', ''
+        $inner = $inner -replace '(?is)</?o:p>', ''
+        if ($style) { $inner = $style + $inner }
+
+        if ($script:SourceMode) { $txtSource.Text = $inner } else { Set-EditorHtml $wbEditor $inner }
+        if ($subject) {
+            if (-not $txtSubject.Text.Trim() -or (Confirm-Msg "Remplacer l'objet actuel par celui du message ?`n`n$subject")) { $txtSubject.Text = $subject }
+        }
+        Write-Log "Import Outlook : $Path ($nbInline image(s) intégrée(s), $nbAttach pièce(s) jointe(s))" 'OK'
+        Show-Msg "Message importé.`n`nImages intégrées : $nbInline`nPièces jointes ajoutées : $nbAttach`n`nLes images sont extraites dans :`n$imgDir" 'Import Outlook'
+    } catch {
+        Write-Log "Import .msg : $($_.Exception.Message)" 'ERROR'
+        Show-Msg "Échec de l'import :`n$($_.Exception.Message)" 'Import Outlook' 'Error'
+    } finally {
+        try { if ($item) { $item.Close(1) | Out-Null } } catch { }   # 1 = olDiscard
+        foreach ($o in @($item, $ol)) { if ($o) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($o) } catch { } } }
+    }
+}
+#endregion
+
 #region ================= SMTP / ENVOI =================
 function New-SmtpClient {
     $c = New-Object System.Net.Mail.SmtpClient($txtServer.Text.Trim(), [int]$numPort.Value)
@@ -1096,13 +1181,14 @@ New-Ctl 'Label' @{ Text = 'Objet :'; Location = @(6, 11); AutoSize = $true; Font
 $txtSubject  = New-Ctl 'TextBox' @{ Location = @(60, 8); Size = @(540, 23); Anchor = 'Top,Left,Right' } $pnlSubject
 $btnNew      = New-Ctl 'Button' @{ Text = 'Nouveau';       Size = @(80, 27); Anchor = 'Top,Right' } $pnlSubject
 $btnOpen     = New-Ctl 'Button' @{ Text = 'Ouvrir HTML';   Size = @(95, 27); Anchor = 'Top,Right' } $pnlSubject
+$btnMsg      = New-Ctl 'Button' @{ Text = 'Importer .msg'; Size = @(105, 27); Anchor = 'Top,Right' } $pnlSubject
 $btnSave     = New-Ctl 'Button' @{ Text = 'Enregistrer';   Size = @(95, 27); Anchor = 'Top,Right' } $pnlSubject
 $btnSource   = New-Ctl 'Button' @{ Text = 'Source HTML';   Size = @(100, 27); Anchor = 'Top,Right' } $pnlSubject
 $btnPreview  = New-Ctl 'Button' @{ Text = 'Aperçu';        Size = @(90, 27); Anchor = 'Top,Right'; Font = $FontBold } $pnlSubject
 $btnHelp     = New-Ctl 'Button' @{ Text = '?';             Size = @(30, 27); Anchor = 'Top,Right' } $pnlSubject
 $pnlSubject.Add_Resize({
     $x = $pnlSubject.Width - 8
-    foreach ($b in @($btnHelp, $btnPreview, $btnSource, $btnSave, $btnOpen, $btnNew)) { $x -= $b.Width + 4; $b.Location = New-Object System.Drawing.Point($x, 6) }
+    foreach ($b in @($btnHelp, $btnPreview, $btnSource, $btnSave, $btnMsg, $btnOpen, $btnNew)) { $x -= $b.Width + 4; $b.Location = New-Object System.Drawing.Point($x, 6) }
     $txtSubject.Width = [Math]::Max(150, $x - 68)
 })
 $tlEditor.Controls.Add($pnlSubject, 0, 0)
@@ -1151,6 +1237,14 @@ $btnOpen.Add_Click({
     if ($script:SourceMode) { $txtSource.Text = $inner } else { Set-EditorHtml $wbEditor $inner }
     Write-Log "Brouillon chargé : $($dlg.FileName)" 'OK'
 })
+$btnMsg.Add_Click({
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Title = 'Importer un message Outlook'; $dlg.Filter = 'Messages Outlook (*.msg;*.oft)|*.msg;*.oft|Tous les fichiers|*.*'
+    if ($dlg.ShowDialog() -ne 'OK') { return }
+    $cur = Get-EditorHtml $wbEditor
+    if (($cur -replace '<[^>]+>|&nbsp;|\s', '') -ne '' -and -not (Confirm-Msg "Le contenu actuel de l'éditeur sera remplacé par le message importé.`nContinuer ?")) { return }
+    Import-OutlookMessage $dlg.FileName
+})
 $btnSave.Add_Click({
     $dlg = New-Object System.Windows.Forms.SaveFileDialog
     $dlg.Filter = 'Fichier HTML|*.html'; $dlg.FileName = "mail_$(Get-Date -Format yyyyMMdd_HHmm).html"; $dlg.Title = 'Enregistrer le brouillon'
@@ -1196,6 +1290,8 @@ $btnHelp.Add_Click({
 • Source HTML : bascule vers le code pour les retouches fines.
 • Aperçu : rendu final avec signature et variables remplacées.
 • Enregistrer / Ouvrir : brouillons HTML réutilisables.
+• Importer .msg : charge un message ou modèle Outlook (.msg / .oft) avec ses images
+  intégrées et ses pièces jointes (Outlook doit être installé).
 "@ 'Aide'
 })
 $btnAttAdd.Add_Click({
