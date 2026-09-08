@@ -383,7 +383,7 @@ const TXT = {
 const T = k => (TXT[doc.settings.lang] || TXT.fr)[k];
 const calloutLabel = variant => T(variant) || T('info');
 const BLOCKS = {
-  header:   { label: 'Bandeau',      hint: 'Titre coloré en tête', make: () => ({ title: T('hTitle'), subtitle: T('hSub'), logo: '', logoW: 60, logoAlt: T('logo'), useBrand: true, bg: '', color: '#FFFFFF' }) },
+  header:   { label: 'Bandeau',      hint: 'Titre coloré en tête', make: () => ({ title: T('hTitle'), subtitle: T('hSub'), logo: '', logoEmbed: '', logoW: 60, logoAlt: T('logo'), logoPos: 'left', logoX: 0, logoY: 0, logoLayer: 'front', minHeight: 0, useBrand: true, bg: '', color: '#FFFFFF' }) },
   title:    { label: 'Titre',        hint: 'Section numérotée ou non', make: () => ({ text: T('sectionTitle'), size: 18, underline: true }) },
   text:     { label: 'Paragraphe',   hint: 'Texte libre', make: () => ({ html: T('hello'), size: 14, align: 'left' }) },
   callout:  { label: 'Encadré',      hint: 'Info / Attention / Succès / Erreur', make: () => ({ variant: 'warn', html: T('callout') }) },
@@ -467,10 +467,15 @@ function renderBlock(b, edit) {
   switch (b.type) {
     case 'header': {
       const bg = b.useBrand || !b.bg ? brand : b.bg;
-      return `<tr><td bgcolor="${bg}" style="background-color:${bg};padding:22px ${P};">${T}<tr>` +
-        (b.logo ? `<td width="${b.logoW + 16}" valign="middle" style="padding-right:16px;">${imgTag(b.logo, b.logoW, b.logoAlt)}</td>` : '') +
+      const lsrc = b.logoEmbed || b.logo, pos = b.logoPos || 'left';
+      const nat = b.logoNatW ? { natW: b.logoNatW, natH: b.logoNatH } : null;
+      const logoTd = side => lsrc && pos === side ? `<td width="${b.logoW + 16}" valign="middle" style="${side === 'left' ? 'padding-right' : 'padding-left'}:16px;">${imgTag(lsrc, b.logoW, b.logoAlt, '', nat)}</td>` : '';
+      const mh = Number(b.minHeight) > 0 ? `height="${b.minHeight}" ` : '';
+      return `<tr><td ${mh}bgcolor="${bg}" style="background-color:${bg};padding:22px ${P};${Number(b.minHeight) > 0 ? `height:${b.minHeight}px;` : ''}">${T}<tr>` +
+        logoTd('left') +
         `<td valign="middle" style="${FF}color:${b.color};"><div${df('title')} style="font-size:22px;line-height:28px;font-weight:bold;">${v('title')}</div>` +
-        `<div${df('subtitle')} style="font-size:14px;line-height:20px;padding-top:4px;">${v('subtitle')}</div></td></tr></table></td></tr>`;
+        `<div${df('subtitle')} style="font-size:14px;line-height:20px;padding-top:4px;">${v('subtitle')}</div></td>` +
+        logoTd('right') + `</tr></table></td></tr>`;
     }
     case 'title':
       return `<tr><td style="padding:18px ${P} 6px ${P};"><div${df('text')} style="${FF}font-size:${b.size}px;line-height:${b.size + 6}px;font-weight:bold;color:${brand};${b.underline ? `border-bottom:2px solid ${brand};padding-bottom:4px;` : ''}">${v('text')}</div></td></tr>`;
@@ -574,7 +579,14 @@ function renderBlock(b, edit) {
 }
 
 /* ------------------------------------------------------- Images libres intégrées à un bloc (calques) */
-const hostedOf = id => doc.blocks.filter(x => x.type === 'freeimg' && x.host === id);
+const hostedOf = id => {
+  const list = doc.blocks.filter(x => x.type === 'freeimg' && x.host === id);
+  const h = doc.blocks.find(x => x.id === id);
+  if (h && h.type === 'header' && (h.logoPos === 'free') && (h.logoEmbed || h.logo || true)) {
+    list.unshift({ id: h.id, kind: 'logo', src: h.logo, embed: h.logoEmbed, width: h.logoW, x: h.logoX, y: h.logoY, layer: h.logoLayer || 'front', natW: h.logoNatW, natH: h.logoNatH, alt: h.logoAlt, height: 0 });
+  }
+  return list;
+};
 const blockLabelOf = b => { const t = stripTags(b.title || b.text || b.caption || b.label || (b.type === 'rawhtml' ? '' : b.html) || (b.steps ? b.steps[0]?.title : '') || b.left || (b.headers ? b.headers.join(' | ') : '') || '').slice(0, 30); return BLOCKS[b.type].label + (t ? ' · ' + t : ''); };
 function withOverlays(rowHtml, overlays, edit) {
   if (!overlays.length) return rowHtml;
@@ -585,9 +597,9 @@ function withOverlays(rowHtml, overlays, edit) {
     const h = o.natW ? Math.round(w * o.natH / o.natW) : (Number(o.height) || w);
     const x = Math.max(0, Number(o.x) || 0), y = Math.max(0, Number(o.y) || 0), front = o.layer !== 'back';
     if (edit) {
-      return `<div class="ov${o.id === selectedId ? ' sel' : ''}${front ? '' : ' back'}" data-ovid="${o.id}" style="left:${x}px;top:${y}px;width:${w}px;z-index:${front ? 6 : 5};">` +
-        (src ? `<img src="${esc(src)}" width="${w}" alt="" style="display:block;width:${w}px;height:auto;">` : `<div class="ph" style="width:${w}px;padding:10px">Image</div>`) +
-        `<span class="lay">${front ? 'devant' : 'derrière'} · X ${x} · Y ${y}</span></div>`;
+      return `<div class="ov${o.id === selectedId ? ' sel' : ''}${front ? '' : ' back'}" data-ovid="${o.id}"${o.kind ? ` data-ovkind="${o.kind}"` : ''} style="left:${x}px;top:${y}px;width:${w}px;z-index:${front ? 6 : 5};">` +
+        (src ? `<img src="${esc(src)}" width="${w}" alt="" style="display:block;width:${w}px;height:auto;">` : `<div class="ph" style="width:${w}px;padding:10px;background:#fff">${o.kind === 'logo' ? 'Logo : collez une image (Ctrl+V)' : 'Image'}</div>`) +
+        `<span class="lay">${o.kind === 'logo' ? 'logo · ' : ''}${front ? 'devant' : 'derrière'} · X ${x} · Y ${y}</span></div>`;
     }
     if (!src) return '';
     const img = `<img src="${esc(src)}" width="${w}" height="${h}" alt="${esc(o.alt || '')}" style="display:block;border:0;width:${w}px;height:${h}px;">`;
@@ -785,7 +797,8 @@ function renderSettings() {
 
 /* ---- Panneau propriétés ---- */
 const PROPS = {
-  header: [ ['title','Titre','text'], ['subtitle','Sous-titre','text'], ['useBrand','Utiliser la couleur principale','check'], ['bg','Couleur de fond personnalisée','color'], ['color','Couleur du texte','color'], ['logo','Logo (chemin ou URL)','image'], ['logoW','Largeur du logo (px)','number'], ['logoAlt','Texte alternatif du logo','text'] ],
+  header: [ ['title','Titre','text'], ['subtitle','Sous-titre','text'], ['useBrand','Utiliser la couleur principale','check'], ['bg','Couleur de fond personnalisée','color'], ['color','Couleur du texte','color'], ['minHeight','Hauteur minimale du bandeau (px, 0 = auto)','number'],
+            ['logo','Logo / photo (chemin ou URL)','image'], ['logoEmbed','','embed'], ['logoW','Largeur du logo (px)','number'], ['logoAlt','Texte alternatif du logo','text'], ['logoPos','Position du logo','select',['left|À gauche du titre','right|À droite du titre','free|Libre (déplaçable à la souris)']], ['logoX','Logo : position X (mode libre)','number'], ['logoY','Logo : position Y (mode libre)','number'], ['logoLayer','Logo : niveau (mode libre)','select',['front|Devant le texte','back|Derrière le texte']] ],
   title:  [ ['text','Texte','text'], ['size','Taille (px)','number'], ['underline','Souligner','check'] ],
   text:   [ ['size','Taille du texte (px)','number'], ['align','Alignement','select',['left|Gauche','center|Centré','right|Droite','justify|Justifié']] ],
   callout:[ ['variant','Type','select',['info|Information (bleu)','warn|Attention (orange)','ok|Succès (vert)','err|Erreur (rouge)']] ],
@@ -821,8 +834,8 @@ function renderProps() {
     else if (type === 'hostsel') h += `<select data-key="host"><option value="">— Autonome (ligne à part) —</option>${doc.blocks.filter(x => x.id !== b.id && !(x.type === 'freeimg')).map(x => `<option value="${x.id}" ${x.id === val ? 'selected' : ''}>${esc(blockLabelOf(x))}</option>`).join('')}</select><div class="kv">Vous pouvez aussi glisser l'image directement sur un bloc du mail.</div><div class="btnrow"><button class="sm" data-layer="back" ${val ? '' : 'disabled'}>Reculer (derrière)</button><button class="sm" data-layer="front" ${val ? '' : 'disabled'}>Avancer (devant)</button></div>`;
     else if (type === 'textarea') h += `<textarea data-key="${key}" rows="10" class="srcField" style="border-style:solid" spellcheck="false">${esc(val)}</textarea>`;
     else if (type === 'embed') h += (val
-      ? `<div class="note">Image incorporée dans le modèle (${(val.length * 0.75 / 1024).toFixed(0)} Ko).</div><div class="btnrow"><button class="sm" data-embed="dl">Télécharger en PNG</button><button class="sm danger" data-embed="rm">Retirer</button></div>`
-      : `<div class="btnrow"><button class="sm" data-embed="paste">Coller une capture du presse-papier</button><button class="sm" data-embed="file">Incorporer un fichier…</button></div>`);
+      ? `<div class="note">Image incorporée dans le modèle (${(val.length * 0.75 / 1024).toFixed(0)} Ko).</div><div class="btnrow"><button class="sm" data-embed="dl" data-ekey="${key}">Télécharger en PNG</button><button class="sm danger" data-embed="rm" data-ekey="${key}">Retirer</button></div>`
+      : `<div class="btnrow"><button class="sm" data-embed="paste" data-ekey="${key}">Coller une image du presse-papier</button><button class="sm" data-embed="file" data-ekey="${key}">Incorporer un fichier…</button></div>`);
     else if (type === 'image') h += `<div class="row"><input type="text" data-key="${key}" value="${esc(val)}" placeholder="C:\\Images\\capture.png ou https://…"><button class="sm" data-pick="${key}">Fichier…</button></div><div class="kv">Chemin local : embarqué à l'envoi par l'outil PowerShell. URL https : doit rester accessible.</div>`;
   }
   if (b.type === 'steps') {
@@ -848,7 +861,7 @@ $('#propsBody').addEventListener('input', e => {
   else if (el.type === 'text' && el.parentElement.querySelector('input[type=color]')) { const cp = el.parentElement.querySelector('input[type=color]'); if (/^#[0-9a-f]{6}$/i.test(val)) cp.value = val; }
   b[key] = val;
   if (key === 'host' && val) { const from = doc.blocks.indexOf(b); doc.blocks.splice(from, 1); const hi = doc.blocks.findIndex(x => x.id === val); doc.blocks.splice(hi + 1, 0, b); }
-  commit({ canvas: true, structure: true, props: el.type === 'checkbox' || key === 'host' || key === 'layer' || (b.type === 'steps' && (key === 'numbering' || key === 'start')) });
+  commit({ canvas: true, structure: true, props: el.type === 'checkbox' || key === 'host' || key === 'layer' || key === 'logoPos' || (b.type === 'steps' && (key === 'numbering' || key === 'start')) });
 });
 $('#propsBody').addEventListener('click', e => {
   const btn = e.target.closest('button'); if (!btn) return;
@@ -856,11 +869,12 @@ $('#propsBody').addEventListener('click', e => {
   if (btn.dataset.act) return blockAction(selectedId, btn.dataset.act);
   if (!b) return;
   if (btn.dataset.layer) { b.layer = btn.dataset.layer; commit({ canvas: true, structure: true, props: true }); return; }
-  if (btn.dataset.pick) return pickImage(v => { b[btn.dataset.pick] = v; b.embed = ''; b.natW = b.natH = 0; commit({ canvas: true, props: true }); });
+  if (btn.dataset.pick) return pickImage(v => { b[btn.dataset.pick] = v; if (btn.dataset.pick === 'logo') { b.logoEmbed = ''; b.logoNatW = b.logoNatH = 0; } else { b.embed = ''; b.natW = b.natH = 0; } commit({ canvas: true, props: true }); });
+  const ek = btn.dataset.ekey || 'embed';
   if (btn.dataset.embed === 'paste') return pasteImageFromClipboard();
-  if (btn.dataset.embed === 'file') { const inp = $('#fileImg'); inp.onchange = () => { const f = inp.files[0]; inp.value = ''; if (!f) return; const r = new FileReader(); r.onload = () => { b.embed = r.result; b.src = ''; measureImage(b, r.result); commit({ canvas: true, props: true }); }; r.readAsDataURL(f); }; return inp.click(); }
-  if (btn.dataset.embed === 'dl') return downloadEmbedded(b.embed, (stripTags(b.caption || b.alt || 'image')).replace(/[^\w\-]+/g, '_').slice(0, 40) + '.png');
-  if (btn.dataset.embed === 'rm') { b.embed = ''; b.natW = b.natH = 0; commit({ canvas: true, props: true }); return; }
+  if (btn.dataset.embed === 'file') { const inp = $('#fileImg'); inp.onchange = () => { const f = inp.files[0]; inp.value = ''; if (!f) return; const r = new FileReader(); r.onload = () => { setEmbeddedImage(r.result); }; r.readAsDataURL(f); }; return inp.click(); }
+  if (btn.dataset.embed === 'dl') return downloadEmbedded(b[ek], (stripTags(b.caption || b.alt || b.logoAlt || 'image')).replace(/[^\w\-]+/g, '_').slice(0, 40) + '.png');
+  if (btn.dataset.embed === 'rm') { b[ek] = ''; if (ek === 'logoEmbed') { b.logoNatW = b.logoNatH = 0; } else { b.natW = b.natH = 0; } commit({ canvas: true, props: true }); return; }
   if (btn.dataset.stepact) {
     const i = +btn.dataset.si, a = btn.dataset.stepact, st = b.steps;
     if (a === 'up' && i > 0) [st[i - 1], st[i]] = [st[i], st[i - 1]];
@@ -993,6 +1007,7 @@ document.addEventListener('paste', e => {
 });
 function setEmbeddedImage(dataUrl) {
   const b = doc.blocks.find(x => x.id === selectedId);
+  if (b && b.type === 'header') { b.logoEmbed = dataUrl; b.logo = ''; measureImage(b, dataUrl); commit({ canvas: true, props: true }); toast('Logo intégré au bandeau'); return; }
   if (b && (b.type === 'screenshot' || b.type === 'image' || b.type === 'floatimg' || b.type === 'freeimg')) { b.embed = dataUrl; b.src = ''; measureImage(b, dataUrl); commit({ canvas: true, structure: true, props: true }); toast('Image collée dans le bloc sélectionné'); return; }
   const n = doc.blocks.filter(x => x.type === 'screenshot').length + 1;
   const nb = Object.assign({ id: uid(), type: 'screenshot' }, BLOCKS.screenshot.make(), { embed: dataUrl, caption: `${T('capture')} ${n} – ${T('captureDesc')}` });
@@ -1012,6 +1027,7 @@ async function pasteImageFromClipboard() {
 function measureImage(b, dataUrl) {
   const im = new Image();
   im.onload = () => {
+    if (b.type === 'header') { b.logoNatW = im.naturalWidth; b.logoNatH = im.naturalHeight; b.logoW = Math.min(b.logoW || 60, im.naturalWidth, 200) || 60; commit({ canvas: true, props: true }); return; }
     b.natW = im.naturalWidth; b.natH = im.naturalHeight;
     const usable = doc.settings.width - 2 * (doc.settings.pad ?? 28) - (b.type === 'screenshot' ? 14 : 0);
     if (b.type === 'freeimg') b.width = Math.min(b.width || b.natW, b.natW, usable);
@@ -1041,7 +1057,7 @@ function downloadEmbedded(dataUrl, name) {
     e.preventDefault();
     if (id !== selectedId) selectBlock(id, false);
     if (grip) drag = { kind: 'block', id: b.id, el: blk, target: null, after: false };
-    else if (ovEl) drag = { kind: 'ov', id: b.id, el: ovEl, hostEl: blk, x0: e.clientX, y0: e.clientY, bx: Number(b.x) || 0, by: Number(b.y) || 0, moved: false, target: null };
+    else if (ovEl) { const kx = ovEl.dataset.ovkind === 'logo' ? 'logoX' : 'x', ky = ovEl.dataset.ovkind === 'logo' ? 'logoY' : 'y'; drag = { kind: 'ov', id: b.id, el: ovEl, hostEl: blk, x0: e.clientX, y0: e.clientY, bx: Number(b[kx]) || 0, by: Number(b[ky]) || 0, moved: false, target: null, kx, ky, fixed: ovEl.dataset.ovkind === 'logo' }; }
     else drag = { kind: 'img', id: b.id, el: blk, handle, x0: e.clientX, y0: e.clientY, bx: Number(b.x) || 0, by: Number(b.y) || 0, moved: false, pos: blk.querySelector('.freeimg-pos') };
     document.body.classList.add('dragging-img');
     if (grip) blk.classList.add('dragging');
@@ -1051,9 +1067,11 @@ function downloadEmbedded(dataUrl, name) {
     if (!drag) return;
     if (drag.kind === 'ov') {
       const b = doc.blocks.find(x => x.id === drag.id); if (!b) return;
-      b.x = Math.max(0, Math.round(drag.bx + (e.clientX - drag.x0))); b.y = Math.max(0, Math.round(drag.by + (e.clientY - drag.y0))); drag.moved = true;
-      drag.el.style.left = b.x + 'px'; drag.el.style.top = b.y + 'px';
-      const lay = drag.el.querySelector('.lay'); if (lay) lay.textContent = `${b.layer === 'back' ? 'derrière' : 'devant'} · X ${b.x} · Y ${b.y}`;
+      const kx = drag.kx, ky = drag.ky;
+      b[kx] = Math.max(0, Math.round(drag.bx + (e.clientX - drag.x0))); b[ky] = Math.max(0, Math.round(drag.by + (e.clientY - drag.y0))); drag.moved = true;
+      drag.el.style.left = b[kx] + 'px'; drag.el.style.top = b[ky] + 'px';
+      const lay = drag.el.querySelector('.lay'); if (lay) lay.textContent = `${drag.fixed ? 'logo · ' : ''}${(drag.fixed ? b.logoLayer : b.layer) === 'back' ? 'derrière' : 'devant'} · X ${b[kx]} · Y ${b[ky]}`;
+      if (drag.fixed) return;
       $$('.blk').forEach(x => x.classList.remove('host-target'));
       const hostR = drag.hostEl.getBoundingClientRect();
       const outside = e.clientY < hostR.top - 10 || e.clientY > hostR.bottom + 10;
