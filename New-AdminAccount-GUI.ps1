@@ -50,6 +50,24 @@ function New-CompliantPassword {
     return (-join ($chars | Sort-Object { Get-Random }))
 }
 
+function Convert-OUPathToDN {
+    # Accepte un DN (renvoye tel quel) OU un chemin canonique "domaine.fqdn/OU1/OU2/..." -> DN
+    param([string]$Path)
+    $p = $Path.Trim().Trim('/')
+    if (-not $p) { return "" }
+    if ($p -match '(?i)\b(OU|CN|DC)=') { return $p }              # deja un DistinguishedName
+    $parts = @($p -split '/')
+    $domain = $parts[0]
+    $dc = (($domain -split '\.') | ForEach-Object { "DC=$_" }) -join ','
+    if ($parts.Count -gt 1) {
+        $ouParts = @($parts[1..($parts.Count - 1)])
+        [array]::Reverse($ouParts)
+        $ou = ($ouParts | ForEach-Object { "OU=$_" }) -join ','
+        return "$ou,$dc"
+    }
+    return $dc
+}
+
 # ==================================================================
 # Formulaire
 # ==================================================================
@@ -78,10 +96,8 @@ $txtPrefix = New-Object System.Windows.Forms.TextBox; $txtPrefix.Location=New-Ob
 Add-Lbl $gbCfg "Serveur AD :" 500 56 | Out-Null
 $txtServer = New-Object System.Windows.Forms.TextBox; $txtServer.Location=New-Object System.Drawing.Point(575,53); $txtServer.Size=New-Object System.Drawing.Size(175,23); $txtServer.Anchor="Top,Right"; $gbCfg.Controls.Add($txtServer)
 
-Add-Lbl $gbCfg "Initiales :" 14 86 | Out-Null
-$txtInit = New-Object System.Windows.Forms.TextBox; $txtInit.Location=New-Object System.Drawing.Point(140,83); $txtInit.Size=New-Object System.Drawing.Size(120,23); $gbCfg.Controls.Add($txtInit)
-Add-Lbl $gbCfg "Description :" 285 86 | Out-Null
-$txtDesc = New-Object System.Windows.Forms.TextBox; $txtDesc.Location=New-Object System.Drawing.Point(360,83); $txtDesc.Size=New-Object System.Drawing.Size(390,23); $txtDesc.Anchor="Top,Left,Right"; $gbCfg.Controls.Add($txtDesc)
+Add-Lbl $gbCfg "Description :" 14 86 | Out-Null
+$txtDesc = New-Object System.Windows.Forms.TextBox; $txtDesc.Location=New-Object System.Drawing.Point(140,83); $txtDesc.Size=New-Object System.Drawing.Size(610,23); $txtDesc.Anchor="Top,Left,Right"; $gbCfg.Controls.Add($txtDesc)
 
 Add-Lbl $gbCfg "extensionAttribute13 :" 14 116 | Out-Null
 $txtExt13 = New-Object System.Windows.Forms.TextBox; $txtExt13.Location=New-Object System.Drawing.Point(160,113); $txtExt13.Size=New-Object System.Drawing.Size(100,23); $gbCfg.Controls.Add($txtExt13)
@@ -123,6 +139,9 @@ $txtSam = New-Object System.Windows.Forms.TextBox; $txtSam.Location=New-Object S
 Add-Lbl $gbDer "Nom d'affichage :" 430 64 | Out-Null
 $txtDisp = New-Object System.Windows.Forms.TextBox; $txtDisp.Location=New-Object System.Drawing.Point(545,61); $txtDisp.Size=New-Object System.Drawing.Size(205,23); $txtDisp.Anchor="Top,Left,Right"; $gbDer.Controls.Add($txtDisp)
 
+Add-Lbl $gbDer "Initiales :" 300 26 | Out-Null
+$txtInit = New-Object System.Windows.Forms.TextBox; $txtInit.Location=New-Object System.Drawing.Point(370,23); $txtInit.Size=New-Object System.Drawing.Size(90,23); $gbDer.Controls.Add($txtInit)
+
 Add-Lbl $gbDer "UPN :" 14 94 | Out-Null
 $txtUpn = New-Object System.Windows.Forms.TextBox; $txtUpn.Location=New-Object System.Drawing.Point(150,91); $txtUpn.Size=New-Object System.Drawing.Size(600,23); $txtUpn.Anchor="Top,Left,Right"; $gbDer.Controls.Add($txtUpn)
 Add-Lbl $gbDer "Nom d'objet (CN) :" 14 124 | Out-Null
@@ -157,6 +176,10 @@ function Update-Derived {
     $txtCN.Text   = "$prefix$lastUpper $first"
     $txtDisp.Text = "$lastUpper $first"
     $txtMail.Text = $txtUpn.Text
+    # Initiales = 1re lettre du prenom + 2 premieres lettres du nom (ex. Ferrero NUTELLA -> FNU)
+    $fPart = if ($first.Length -ge 1) { $first.Substring(0,1) } else { "" }
+    $lPart = if ($lastUpper.Length -ge 2) { $lastUpper.Substring(0,2) } elseif ($lastUpper.Length -eq 1) { $lastUpper } else { "" }
+    $txtInit.Text = ($fPart.ToUpper() + $lPart)
     if ($sam.Length -gt 20) { Write-Log "ATTENTION : sAMAccountName '$sam' depasse 20 caracteres (limite AD). Ajustez-le." }
 }
 
@@ -173,7 +196,7 @@ $btnSaveCfg.Add_Click({
         $dir = Split-Path $script:CfgPath; if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
         [PSCustomObject]@{
             OU=$txtOU.Text; Suffix=$txtSuffix.Text; Prefix=$txtPrefix.Text; Server=$txtServer.Text
-            Initials=$txtInit.Text; Description=$txtDesc.Text; Ext13=$txtExt13.Text; EmployeeType=$txtEmp.Text
+            Description=$txtDesc.Text; Ext13=$txtExt13.Text; EmployeeType=$txtEmp.Text
         } | ConvertTo-Json | Set-Content -Path $script:CfgPath -Encoding UTF8
         Write-Log "Configuration enregistree."
     } catch { Write-Log "ERREUR enregistrement config : $($_.Exception.Message)" }
@@ -196,7 +219,8 @@ $btnCreate.Add_Click({
     if (-not $txtSam.Text.Trim() -or -not $txtCN.Text.Trim()) { Update-Derived }
     $first = $txtFirst.Text.Trim(); $last = $txtLast.Text.Trim()
     $sam = $txtSam.Text.Trim(); $upn = $txtUpn.Text.Trim(); $cn = $txtCN.Text.Trim()
-    $disp = $txtDisp.Text.Trim(); $mail = $txtMail.Text.Trim(); $ou = $txtOU.Text.Trim(); $pwd = $txtPwd.Text
+    $disp = $txtDisp.Text.Trim(); $mail = $txtMail.Text.Trim(); $pwd = $txtPwd.Text
+    $ouRaw = $txtOU.Text.Trim(); $ou = Convert-OUPathToDN $ouRaw
 
     if (-not $first -or -not $last) { [System.Windows.Forms.MessageBox]::Show("Prenom et Nom obligatoires.", "Validation", "OK", "Warning") | Out-Null; return }
     if (-not $ou)  { [System.Windows.Forms.MessageBox]::Show("OU cible obligatoire (Configuration).", "Validation", "OK", "Warning") | Out-Null; return }
@@ -214,7 +238,7 @@ $btnCreate.Add_Click({
         if ($exists) { [System.Windows.Forms.MessageBox]::Show("Un compte '$sam' existe deja.", "Doublon", "OK", "Warning") | Out-Null; return }
     } catch { }
 
-    $recap = "Nom d'objet : $cn`nsAMAccount : $sam`nUPN : $upn`nActiver : $($chkEnabled.Checked)`n`nCreer ce compte dans :`n$ou ?"
+    $recap = "Nom d'objet : $cn`nsAMAccount : $sam`nUPN : $upn`nActiver : $($chkEnabled.Checked)`n`nCreer ce compte dans (DN) :`n$ou ?"
     if ([System.Windows.Forms.MessageBox]::Show($recap, "Confirmation", "YesNo", "Question") -ne "Yes") { return }
 
     $other = @{}
@@ -242,6 +266,7 @@ $btnCreate.Add_Click({
     try {
         New-ADUser @params -ErrorAction Stop
         Write-Log "COMPTE CREE : $sam ($cn)"
+        Write-Log "  OU (DN) : $ou"
         foreach ($k in $other.Keys) { Write-Log "  $k = $($other[$k])" }
         $script:LastSummary = "Compte      : $sam`nUPN         : $upn`nE-mail      : $mail`nMot de passe: $pwd`nDescription : $($txtDesc.Text.Trim())"
         $btnCopySum.Enabled = $true
@@ -255,14 +280,13 @@ $btnCreate.Add_Click({
 # ==================================================================
 # Init : valeurs par defaut neutres + chargement config locale
 # ==================================================================
-$txtPrefix.Text = "A-"; $txtInit.Text = "FNU"; $txtDesc.Text = "Admin Account for Azure AD"; $txtExt13.Text = "SYNC"; $txtEmp.Text = "YES"
+$txtPrefix.Text = "A-"; $txtDesc.Text = "Admin Account for Azure AD"; $txtExt13.Text = "SYNC"; $txtEmp.Text = "YES"
 $cfg = Load-Cfg
 if ($cfg) {
     if ($cfg.OU)           { $txtOU.Text     = $cfg.OU }
     if ($cfg.Suffix)       { $txtSuffix.Text = $cfg.Suffix }
     if ($cfg.Prefix)       { $txtPrefix.Text = $cfg.Prefix }
     if ($cfg.Server)       { $txtServer.Text = $cfg.Server }
-    if ($cfg.Initials)     { $txtInit.Text   = $cfg.Initials }
     if ($cfg.Description)  { $txtDesc.Text   = $cfg.Description }
     if ($cfg.Ext13)        { $txtExt13.Text  = $cfg.Ext13 }
     if ($cfg.EmployeeType) { $txtEmp.Text    = $cfg.EmployeeType }
