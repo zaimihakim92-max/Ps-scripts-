@@ -24,11 +24,21 @@ Add-Type -AssemblyName System.Drawing
 $script:Guests  = $null
 $script:ByMail  = @{}
 $script:ByOther = @{}
+$script:GuestIdx = @()
 $script:Results = New-Object System.Collections.Generic.List[object]
 
 # ==================================================================
 # Fonctions Az
 # ==================================================================
+function ConvertTo-Ascii {
+    param([string]$s)
+    if ([string]::IsNullOrEmpty($s)) { return "" }
+    $norm = $s.Normalize([Text.NormalizationForm]::FormD)
+    $sb = New-Object Text.StringBuilder
+    foreach ($c in $norm.ToCharArray()) { if ([Globalization.CharUnicodeInfo]::GetUnicodeCategory($c) -ne [Globalization.UnicodeCategory]::NonSpacingMark) { [void]$sb.Append($c) } }
+    return $sb.ToString().Normalize([Text.NormalizationForm]::FormC)
+}
+function Normalize-Text { param([string]$s) if (-not $s) { return "" } return (ConvertTo-Ascii $s).ToLower().Trim() }
 function Test-AzConnected { try { return [bool](Get-AzContext -ErrorAction Stop) } catch { return $false } }
 
 function Ensure-Guests {
@@ -45,16 +55,19 @@ function Ensure-Guests {
         }
         $script:Guests = @($g)
         $script:ByMail = @{}; $script:ByOther = @{}
+        $idx = New-Object System.Collections.Generic.List[object]
         foreach ($u in $script:Guests) {
             if ($u.Mail) { $script:ByMail[$u.Mail.ToLower()] = $u }
             if ($u.OtherMails) { foreach ($o in $u.OtherMails) { if ($o) { $script:ByOther[$o.ToLower()] = $u } } }
+            $idx.Add([PSCustomObject]@{ G = $u; ND = (Normalize-Text $u.DisplayName) }) | Out-Null
         }
+        $script:GuestIdx = $idx
         Write-Log "$($script:Guests.Count) compte(s) invite(s) charge(s)."
         return $true
     } catch { Write-Log "ERREUR chargement invites : $($_.Exception.Message)"; return $false }
 }
 
-function Resolve-Guest {
+function Resolve-GuestByMail {
     param([string]$Id)
     $k = $Id.Trim().ToLower(); if (-not $k) { return $null }
     if ($script:ByMail.ContainsKey($k))  { return $script:ByMail[$k] }
@@ -66,8 +79,21 @@ function Resolve-Guest {
             if ($upn.Contains('#ext#') -and $upn.StartsWith($enc)) { return $u }
         }
     }
-    if ($k -notmatch '@') { foreach ($u in $script:Guests) { if ($u.DisplayName -and $u.DisplayName.ToLower().Contains($k)) { return $u } } }
     return $null
+}
+
+function Resolve-GuestByName {
+    # Correspondance insensible a l'ordre : tous les mots de l'entree doivent figurer dans le DisplayName.
+    param([string]$Id)
+    $tokens = @((Normalize-Text $Id) -split '[;,\s]+' | Where-Object { $_ })
+    if ($tokens.Count -eq 0) { return @() }
+    $hits = New-Object System.Collections.Generic.List[object]
+    foreach ($e in $script:GuestIdx) {
+        $ok = $true
+        foreach ($t in $tokens) { if ($e.ND -notlike "*$t*") { $ok = $false; break } }
+        if ($ok) { $hits.Add($e.G) | Out-Null }
+    }
+    return , $hits.ToArray()
 }
 
 function Get-InputIds {
@@ -136,6 +162,7 @@ function Add-ResultRow {
     if ($guest) { $disp=$guest.DisplayName; $upn=$guest.UserPrincipalName; $mail=$guest.Mail; if ($guest.OtherMails) { $other=($guest.OtherMails -join '; ') }; $en=[string]$guest.AccountEnabled }
     $i=$grid.Rows.Add($input,$disp,$upn,$mail,$other,$en,$statut)
     if ($statut -eq "INTROUVABLE") { $grid.Rows[$i].DefaultCellStyle.BackColor=[System.Drawing.Color]::FromArgb(255,224,150) }
+    elseif ($statut -like "AMBIGU*") { $grid.Rows[$i].DefaultCellStyle.BackColor=[System.Drawing.Color]::FromArgb(255,235,200) }
     $script:Results.Add([PSCustomObject]@{ Entree=$input; DisplayName=$disp; UserPrincipalName=$upn; Mail=$mail; OtherMails=$other; AccountEnabled=$en; Statut=$statut })|Out-Null
 }
 
@@ -160,10 +187,17 @@ $btnResolve.Add_Click({
     $grid.Rows.Clear(); $script:Results.Clear()
     $found=0
     foreach ($id in $ids) {
-        $g = Resolve-Guest $id
-        if ($g) { Add-ResultRow $id $g "TROUVE"; $found++ } else { Add-ResultRow $id $null "INTROUVABLE" }
+        if ($id -match '@') {
+            $g = Resolve-GuestByMail $id
+            if ($g) { Add-ResultRow $id $g "TROUVE"; $found++ } else { Add-ResultRow $id $null "INTROUVABLE" }
+        } else {
+            $hits = @(Resolve-GuestByName $id)
+            if ($hits.Count -eq 0) { Add-ResultRow $id $null "INTROUVABLE" }
+            elseif ($hits.Count -eq 1) { Add-ResultRow $id $hits[0] "TROUVE"; $found++ }
+            else { foreach ($h in $hits) { Add-ResultRow $id $h "AMBIGU ($($hits.Count))" } }
+        }
     }
-    Write-Log "Resolution : $($ids.Count) identifiant(s), $found invite(s) trouve(s)."
+    Write-Log "Resolution : $($ids.Count) identifiant(s), $found invite(s) trouve(s) sans ambiguite."
     $btnExport.Enabled = ($script:Results.Count -gt 0)
 })
 
