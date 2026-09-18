@@ -39,6 +39,19 @@ function ConvertTo-Ascii {
     return $sb.ToString().Normalize([Text.NormalizationForm]::FormC)
 }
 function Normalize-Text { param([string]$s) if (-not $s) { return "" } return (ConvertTo-Ascii $s).ToLower().Trim() }
+
+function Get-GProp {
+    # Lit une propriete Graph, qu'elle soit forte (.Mail) ou dans AdditionalProperties (['mail']).
+    param($obj, [string]$Pascal)
+    $v = $obj.$Pascal
+    if ($null -ne $v -and "$v" -ne "") { return $v }
+    $ap = $obj.PSObject.Properties['AdditionalProperties']
+    if ($ap -and $obj.AdditionalProperties) {
+        $camel = $Pascal.Substring(0,1).ToLower() + $Pascal.Substring(1)
+        foreach ($key in @($camel, $Pascal)) { if ($obj.AdditionalProperties.ContainsKey($key)) { return $obj.AdditionalProperties[$key] } }
+    }
+    return $null
+}
 function Test-AzConnected { try { return [bool](Get-AzContext -ErrorAction Stop) } catch { return $false } }
 
 function Ensure-Guests {
@@ -53,7 +66,19 @@ function Ensure-Guests {
             Write-Log "  (-Select non pris en charge par cette version d'Az : chargement standard)"
             $g = Get-AzADUser -Filter "userType eq 'Guest'" -ErrorAction Stop
         }
-        $script:Guests = @($g)
+        $flat = New-Object System.Collections.Generic.List[object]
+        foreach ($u in @($g)) {
+            $om = Get-GProp $u 'OtherMails'
+            $flat.Add([PSCustomObject]@{
+                DisplayName       = [string](Get-GProp $u 'DisplayName')
+                UserPrincipalName = [string](Get-GProp $u 'UserPrincipalName')
+                Mail              = [string](Get-GProp $u 'Mail')
+                OtherMails        = @($om | Where-Object { $_ })
+                AccountEnabled    = (Get-GProp $u 'AccountEnabled')
+                Id                = [string](Get-GProp $u 'Id')
+            }) | Out-Null
+        }
+        $script:Guests = $flat
         $script:ByMail = @{}; $script:ByOther = @{}
         $idx = New-Object System.Collections.Generic.List[object]
         foreach ($u in $script:Guests) {
