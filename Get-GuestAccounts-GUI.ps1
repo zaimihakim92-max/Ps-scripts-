@@ -41,14 +41,19 @@ function ConvertTo-Ascii {
 function Normalize-Text { param([string]$s) if (-not $s) { return "" } return (ConvertTo-Ascii $s).ToLower().Trim() }
 
 function Get-GProp {
-    # Lit une propriete Graph, qu'elle soit forte (.Mail) ou dans AdditionalProperties (['mail']).
+    # Lit une propriete quelle que soit sa forme : propriete forte (Pascal ou camelCase) ou AdditionalProperties.
     param($obj, [string]$Pascal)
-    $v = $obj.$Pascal
-    if ($null -ne $v -and "$v" -ne "") { return $v }
+    if ($null -eq $obj) { return $null }
+    $camel = $Pascal.Substring(0,1).ToLower() + $Pascal.Substring(1)
+    foreach ($name in @($Pascal, $camel)) {
+        $p = $obj.PSObject.Properties[$name]
+        if ($p -and $null -ne $p.Value -and "$($p.Value)" -ne "") { return $p.Value }
+    }
     $ap = $obj.PSObject.Properties['AdditionalProperties']
-    if ($ap -and $obj.AdditionalProperties) {
-        $camel = $Pascal.Substring(0,1).ToLower() + $Pascal.Substring(1)
-        foreach ($key in @($camel, $Pascal)) { if ($obj.AdditionalProperties.ContainsKey($key)) { return $obj.AdditionalProperties[$key] } }
+    if ($ap -and $ap.Value) {
+        foreach ($key in @($camel, $Pascal)) {
+            try { if ($ap.Value.ContainsKey($key)) { return $ap.Value[$key] } } catch { }
+        }
     }
     return $null
 }
@@ -66,8 +71,10 @@ function Ensure-Guests {
             Write-Log "  (-Select non pris en charge par cette version d'Az : chargement standard)"
             $g = Get-AzADUser -Filter "userType eq 'Guest'" -ErrorAction Stop
         }
+        $raw = @($g)
+        if ($raw.Count -gt 0) { Write-Log "Proprietes disponibles sur l'objet : $(($raw[0].PSObject.Properties.Name | Sort-Object) -join ', ')" }
         $flat = New-Object System.Collections.Generic.List[object]
-        foreach ($u in @($g)) {
+        foreach ($u in $raw) {
             $om = Get-GProp $u 'OtherMails'
             $flat.Add([PSCustomObject]@{
                 DisplayName       = [string](Get-GProp $u 'DisplayName')
