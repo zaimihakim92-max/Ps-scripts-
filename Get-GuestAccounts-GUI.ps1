@@ -1,21 +1,20 @@
 <#
 .SYNOPSIS
     Repertorier les comptes invites (Guest / B2B) et recuperer leur e-mail - Interface graphique.
-    Module : Microsoft.Graph.
+    Module : Az (Connect-AzAccount / Get-AzADUser).
 
 .DESCRIPTION
     Source : un fichier .txt ET/OU une zone de collage (un identifiant par ligne : e-mail, UPN,
     ou nom). Les deux sources sont fusionnees et dedoublonnees.
 
-    L'outil charge une fois tous les comptes ou userType = Guest, les indexe (mail, otherMails,
-    UPN encode "..._domaine#EXT#@..."), puis resout chaque identifiant vers son compte invite et
-    affiche son e-mail reel, son UPN invite et ses adresses secondaires.
+    L'outil charge une fois tous les comptes ou userType = Guest (filtre cote serveur), les indexe
+    (mail, otherMails, UPN encode "..._domaine#EXT#@..."), puis resout chaque identifiant vers son
+    compte invite et affiche son e-mail, son UPN invite et ses adresses secondaires.
 
-    Bouton "Lister tous les invites" pour un inventaire complet, et export CSV.
+    Bouton "Lister tous les invites" pour un inventaire, et export CSV.
 
 .PREREQUIS
-    - Module Microsoft.Graph (Install-Module Microsoft.Graph -Scope CurrentUser)
-    - Permission Graph User.Read.All (consentie a la connexion).
+    - Module Az (Az.Accounts, Az.Resources). Connexion : bouton, ou session Connect-AzAccount deja active.
 #>
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -28,17 +27,22 @@ $script:ByOther = @{}
 $script:Results = New-Object System.Collections.Generic.List[object]
 
 # ==================================================================
-# Fonctions Graph
+# Fonctions Az
 # ==================================================================
-function Test-MgConnected { try { return [bool](Get-MgContext -ErrorAction Stop) } catch { return $false } }
+function Test-AzConnected { try { return [bool](Get-AzContext -ErrorAction Stop) } catch { return $false } }
 
 function Ensure-Guests {
     if ($null -ne $script:Guests) { return $true }
-    if (-not (Test-MgConnected)) { [System.Windows.Forms.MessageBox]::Show("Non connecte a Microsoft Graph.","Connexion","OK","Warning")|Out-Null; return $false }
+    if (-not (Test-AzConnected)) { [System.Windows.Forms.MessageBox]::Show("Non connecte a Azure.","Connexion","OK","Warning")|Out-Null; return $false }
     Write-Log "Chargement des comptes invites (Guest)..."
     [System.Windows.Forms.Application]::DoEvents()
     try {
-        $g = Get-MgUser -All -Filter "userType eq 'Guest'" -Property id,displayName,userPrincipalName,mail,otherMails,accountEnabled,userType,createdDateTime -ErrorAction Stop
+        try {
+            $g = Get-AzADUser -Filter "userType eq 'Guest'" -Select 'displayName','userPrincipalName','mail','otherMails','accountEnabled','id' -ErrorAction Stop
+        } catch {
+            Write-Log "  (-Select non pris en charge par cette version d'Az : chargement standard)"
+            $g = Get-AzADUser -Filter "userType eq 'Guest'" -ErrorAction Stop
+        }
         $script:Guests = @($g)
         $script:ByMail = @{}; $script:ByOther = @{}
         foreach ($u in $script:Guests) {
@@ -85,10 +89,9 @@ $form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 
 function Add-Lbl { param($parent,$text,$x,$y) $l=New-Object System.Windows.Forms.Label; $l.Text=$text; $l.Location=New-Object System.Drawing.Point($x,$y); $l.AutoSize=$true; $parent.Controls.Add($l); return $l }
 
-$btnConnect = New-Object System.Windows.Forms.Button; $btnConnect.Text="Connexion Graph"; $btnConnect.Location=New-Object System.Drawing.Point(15,12); $btnConnect.Size=New-Object System.Drawing.Size(160,28); $form.Controls.Add($btnConnect)
+$btnConnect = New-Object System.Windows.Forms.Button; $btnConnect.Text="Connexion Azure"; $btnConnect.Location=New-Object System.Drawing.Point(15,12); $btnConnect.Size=New-Object System.Drawing.Size(160,28); $form.Controls.Add($btnConnect)
 $lblConn = Add-Lbl $form "Etat : verification..." 190 18; $lblConn.AutoSize=$false; $lblConn.Size=New-Object System.Drawing.Size(680,18); $lblConn.Anchor="Top,Left,Right"
 
-# ---------- Source ----------
 $gbSrc = New-Object System.Windows.Forms.GroupBox
 $gbSrc.Text="Source (un identifiant par ligne : e-mail, UPN ou nom)"; $gbSrc.Location=New-Object System.Drawing.Point(15,50); $gbSrc.Size=New-Object System.Drawing.Size(855,150); $gbSrc.Anchor="Top,Left,Right"
 $form.Controls.Add($gbSrc)
@@ -99,7 +102,6 @@ $btnBrowse = New-Object System.Windows.Forms.Button; $btnBrowse.Text="Parcourir.
 Add-Lbl $gbSrc "Ou coller :" 14 56 | Out-Null
 $txtPaste = New-Object System.Windows.Forms.TextBox; $txtPaste.Location=New-Object System.Drawing.Point(110,53); $txtPaste.Size=New-Object System.Drawing.Size(730,80); $txtPaste.Multiline=$true; $txtPaste.ScrollBars="Vertical"; $txtPaste.WordWrap=$false; $txtPaste.Anchor="Top,Left,Right"; $gbSrc.Controls.Add($txtPaste)
 
-# ---------- Actions ----------
 $btnResolve = New-Object System.Windows.Forms.Button; $btnResolve.Text="Resoudre depuis la liste"; $btnResolve.Location=New-Object System.Drawing.Point(15,210); $btnResolve.Size=New-Object System.Drawing.Size(220,28); $form.Controls.Add($btnResolve)
 $btnListAll = New-Object System.Windows.Forms.Button; $btnListAll.Text="Lister tous les invites"; $btnListAll.Location=New-Object System.Drawing.Point(245,210); $btnListAll.Size=New-Object System.Drawing.Size(200,28); $form.Controls.Add($btnListAll)
 $btnExport = New-Object System.Windows.Forms.Button; $btnExport.Text="Exporter CSV"; $btnExport.Location=New-Object System.Drawing.Point(655,210); $btnExport.Size=New-Object System.Drawing.Size(215,28); $btnExport.Anchor="Top,Right"; $btnExport.Enabled=$false; $form.Controls.Add($btnExport)
@@ -131,7 +133,7 @@ function Set-Conn { param([bool]$c,[string]$m) $lblConn.ForeColor= if($c){[Syste
 function Add-ResultRow {
     param([string]$input,$guest,[string]$statut)
     $disp=""; $upn=""; $mail=""; $other=""; $en=""
-    if ($guest) { $disp=$guest.DisplayName; $upn=$guest.UserPrincipalName; $mail=$guest.Mail; $other=($guest.OtherMails -join '; '); $en=[string]$guest.AccountEnabled }
+    if ($guest) { $disp=$guest.DisplayName; $upn=$guest.UserPrincipalName; $mail=$guest.Mail; if ($guest.OtherMails) { $other=($guest.OtherMails -join '; ') }; $en=[string]$guest.AccountEnabled }
     $i=$grid.Rows.Add($input,$disp,$upn,$mail,$other,$en,$statut)
     if ($statut -eq "INTROUVABLE") { $grid.Rows[$i].DefaultCellStyle.BackColor=[System.Drawing.Color]::FromArgb(255,224,150) }
     $script:Results.Add([PSCustomObject]@{ Entree=$input; DisplayName=$disp; UserPrincipalName=$upn; Mail=$mail; OtherMails=$other; AccountEnabled=$en; Statut=$statut })|Out-Null
@@ -143,12 +145,11 @@ function Add-ResultRow {
 $btnBrowse.Add_Click({ $dlg=New-Object System.Windows.Forms.OpenFileDialog; $dlg.Filter="Fichiers texte (*.txt)|*.txt|Tous (*.*)|*.*"; if($dlg.ShowDialog() -eq "OK"){$txtFile.Text=$dlg.FileName} })
 
 $btnConnect.Add_Click({
-    if (-not (Get-Command Connect-MgGraph -ErrorAction SilentlyContinue)) { [System.Windows.Forms.MessageBox]::Show("Module Microsoft.Graph introuvable.`nInstall-Module Microsoft.Graph -Scope CurrentUser","Prerequis","OK","Error")|Out-Null; return }
+    if (-not (Get-Command Connect-AzAccount -ErrorAction SilentlyContinue)) { [System.Windows.Forms.MessageBox]::Show("Module Az introuvable.`nInstall-Module Az -Scope CurrentUser","Prerequis","OK","Error")|Out-Null; return }
     $btnConnect.Enabled=$false; Set-Conn $false "Connexion en cours..."
-    try { Connect-MgGraph -Scopes "User.Read.All" -NoWelcome -ErrorAction Stop | Out-Null }
-    catch { [System.Windows.Forms.MessageBox]::Show("Echec :`n$($_.Exception.Message)","Connexion","OK","Error")|Out-Null }
-    $ctx=Get-MgContext -ErrorAction SilentlyContinue
-    if ($ctx) { Set-Conn $true "Connecte : $($ctx.Account)"; $script:Guests=$null } else { Set-Conn $false "Non connecte." }
+    try { Connect-AzAccount -ErrorAction Stop | Out-Null } catch { [System.Windows.Forms.MessageBox]::Show("Echec :`n$($_.Exception.Message)","Connexion","OK","Error")|Out-Null }
+    $ctx=Get-AzContext -ErrorAction SilentlyContinue
+    if ($ctx) { Set-Conn $true "Connecte : $($ctx.Account.Id)"; $script:Guests=$null } else { Set-Conn $false "Non connecte." }
     $btnConnect.Enabled=$true
 })
 
@@ -187,14 +188,14 @@ $btnExport.Add_Click({
 })
 
 # ==================================================================
-# Adopter une connexion Graph active
+# Adopter une connexion Az active
 # ==================================================================
-if (Get-Command Get-MgContext -ErrorAction SilentlyContinue) {
-    $ctx = Get-MgContext -ErrorAction SilentlyContinue
-    if ($ctx) { Set-Conn $true "Connexion Graph active reutilisee : $($ctx.Account)"; Write-Log "Connexion Graph detectee : $($ctx.Account)" }
-    else { Set-Conn $false "Non connecte. Cliquez sur 'Connexion Graph'." }
+if (Get-Command Get-AzContext -ErrorAction SilentlyContinue) {
+    $ctx = Get-AzContext -ErrorAction SilentlyContinue
+    if ($ctx) { Set-Conn $true "Connexion Az active reutilisee : $($ctx.Account.Id)"; Write-Log "Connexion Az detectee : $($ctx.Account.Id)" }
+    else { Set-Conn $false "Non connecte. Cliquez sur 'Connexion Azure'." }
 } else {
-    Set-Conn $false "Module Microsoft.Graph requis (Install-Module Microsoft.Graph)."
+    Set-Conn $false "Module Az requis (Install-Module Az)."
 }
 
 [void]$form.ShowDialog()
