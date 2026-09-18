@@ -75,7 +75,7 @@ function Ensure-Guests {
         if ($raw.Count -gt 0) { Write-Log "Proprietes disponibles sur l'objet : $(($raw[0].PSObject.Properties.Name | Sort-Object) -join ', ')" }
         $flat = New-Object System.Collections.Generic.List[object]
         foreach ($u in $raw) {
-            $om = Get-GProp $u 'OtherMails'
+            $om = Get-GProp $u 'OtherMail'
             $flat.Add([PSCustomObject]@{
                 DisplayName       = [string](Get-GProp $u 'DisplayName')
                 UserPrincipalName = [string](Get-GProp $u 'UserPrincipalName')
@@ -189,13 +189,13 @@ function Write-Log { param([string]$m) $txtLog.AppendText(("[{0}] {1}`r`n" -f (G
 function Set-Conn { param([bool]$c,[string]$m) $lblConn.ForeColor= if($c){[System.Drawing.Color]::ForestGreen}else{[System.Drawing.Color]::Gray}; $lblConn.Text=$m }
 
 function Add-ResultRow {
-    param([string]$input,$guest,[string]$statut)
+    param([string]$InputId,$guest,[string]$statut)
     $disp=""; $upn=""; $mail=""; $other=""; $en=""
     if ($guest) { $disp=$guest.DisplayName; $upn=$guest.UserPrincipalName; $mail=$guest.Mail; if ($guest.OtherMails) { $other=($guest.OtherMails -join '; ') }; $en=[string]$guest.AccountEnabled }
-    $i=$grid.Rows.Add($input,$disp,$upn,$mail,$other,$en,$statut)
+    $i=$grid.Rows.Add($InputId,$disp,$upn,$mail,$other,$en,$statut)
     if ($statut -eq "INTROUVABLE") { $grid.Rows[$i].DefaultCellStyle.BackColor=[System.Drawing.Color]::FromArgb(255,224,150) }
     elseif ($statut -like "AMBIGU*") { $grid.Rows[$i].DefaultCellStyle.BackColor=[System.Drawing.Color]::FromArgb(255,235,200) }
-    $script:Results.Add([PSCustomObject]@{ Entree=$input; DisplayName=$disp; UserPrincipalName=$upn; Mail=$mail; OtherMails=$other; AccountEnabled=$en; Statut=$statut })|Out-Null
+    $script:Results.Add([PSCustomObject]@{ Entree=$InputId; DisplayName=$disp; UserPrincipalName=$upn; Mail=$mail; OtherMails=$other; AccountEnabled=$en; Statut=$statut })|Out-Null
 }
 
 # ==================================================================
