@@ -65,14 +65,9 @@ function Ensure-Guests {
     Write-Log "Chargement des comptes invites (Guest)..."
     [System.Windows.Forms.Application]::DoEvents()
     try {
-        try {
-            $g = Get-AzADUser -Filter "userType eq 'Guest'" -Select 'displayName','userPrincipalName','mail','otherMails','accountEnabled','id' -ErrorAction Stop
-        } catch {
-            Write-Log "  (-Select non pris en charge par cette version d'Az : chargement standard)"
-            $g = Get-AzADUser -Filter "userType eq 'Guest'" -ErrorAction Stop
-        }
+        $g = Get-AzADUser -Filter "userType eq 'Guest'" -ErrorAction Stop
         $raw = @($g)
-        if ($raw.Count -gt 0) { Write-Log "Proprietes disponibles sur l'objet : $(($raw[0].PSObject.Properties.Name | Sort-Object) -join ', ')" }
+        if ($raw.Count -gt 0) { Write-Log "Controle 1er invite -> Nom='$([string](Get-GProp $raw[0] 'DisplayName'))' Mail='$([string](Get-GProp $raw[0] 'Mail'))' UPN='$([string](Get-GProp $raw[0] 'UserPrincipalName'))'" }
         $flat = New-Object System.Collections.Generic.List[object]
         foreach ($u in $raw) {
             $om = Get-GProp $u 'OtherMail'
