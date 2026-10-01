@@ -108,6 +108,7 @@ $lblGroupInfo = Add-Lbl $gbTop "(non verifie)" 190 50; $lblGroupInfo.ForeColor=[
 
 $rbAdd = New-Object System.Windows.Forms.RadioButton; $rbAdd.Text="Ajouter au groupe"; $rbAdd.Location=New-Object System.Drawing.Point(14,78); $rbAdd.AutoSize=$true; $rbAdd.Checked=$true; $gbTop.Controls.Add($rbAdd)
 $rbRemove = New-Object System.Windows.Forms.RadioButton; $rbRemove.Text="Retirer du groupe"; $rbRemove.Location=New-Object System.Drawing.Point(200,78); $rbRemove.AutoSize=$true; $gbTop.Controls.Add($rbRemove)
+$btnListMembers = New-Object System.Windows.Forms.Button; $btnListMembers.Text="Lister les membres..."; $btnListMembers.Location=New-Object System.Drawing.Point(640,74); $btnListMembers.Size=New-Object System.Drawing.Size(180,26); $btnListMembers.Anchor="Top,Right"; $gbTop.Controls.Add($btnListMembers)
 
 # ---------- Source ----------
 $gbSrc = New-Object System.Windows.Forms.GroupBox
@@ -166,6 +167,53 @@ function Set-RowStyle { param($row,[string]$s)
     }
 }
 
+function Show-GroupMembers {
+    param([string]$GroupId,[string]$GroupName)
+    try { $members = @(Get-AzADGroupMember -GroupObjectId $GroupId -ErrorAction Stop) }
+    catch { [System.Windows.Forms.MessageBox]::Show("Impossible de lister les membres :`n$($_.Exception.Message)","Membres","OK","Error")|Out-Null; return }
+
+    $rows = New-Object System.Collections.Generic.List[object]
+    foreach ($m in $members) {
+        $t = [string](Get-GProp $m 'OdataType'); if ($t) { $t = $t -replace '^#microsoft\.graph\.','' }
+        $rows.Add([PSCustomObject]@{
+            DisplayName       = [string](Get-GProp $m 'DisplayName')
+            UserPrincipalName = [string](Get-GProp $m 'UserPrincipalName')
+            Type              = $t
+            ObjectId          = [string](Get-GProp $m 'Id')
+        }) | Out-Null
+    }
+
+    $f = New-Object System.Windows.Forms.Form
+    $f.Text = "Membres : $GroupName  ($($rows.Count))"
+    $f.Size = New-Object System.Drawing.Size(780, 560); $f.StartPosition = "CenterParent"; $f.Font = $form.Font; $f.MinimumSize = New-Object System.Drawing.Size(560,400)
+
+    $gm = New-Object System.Windows.Forms.DataGridView
+    $gm.Location = New-Object System.Drawing.Point(12,12); $gm.Size = New-Object System.Drawing.Size(744,460); $gm.Anchor="Top,Bottom,Left,Right"
+    $gm.AllowUserToAddRows=$false; $gm.AllowUserToDeleteRows=$false; $gm.ReadOnly=$true; $gm.RowHeadersVisible=$false
+    $gm.SelectionMode="FullRowSelect"; $gm.AutoSizeColumnsMode="Fill"; $gm.ColumnHeadersHeightSizeMode="AutoSize"
+    $null=$gm.Columns.Add("Display","Nom affiche"); $null=$gm.Columns.Add("Upn","UPN"); $null=$gm.Columns.Add("Type","Type"); $null=$gm.Columns.Add("Oid","ObjectId")
+    $gm.Columns["Display"].FillWeight=26; $gm.Columns["Upn"].FillWeight=34; $gm.Columns["Type"].FillWeight=12; $gm.Columns["Oid"].FillWeight=28
+    foreach ($r in $rows) { [void]$gm.Rows.Add($r.DisplayName,$r.UserPrincipalName,$r.Type,$r.ObjectId) }
+    $f.Controls.Add($gm)
+
+    $btnExp = New-Object System.Windows.Forms.Button; $btnExp.Text="Exporter CSV"; $btnExp.Location=New-Object System.Drawing.Point(12,484); $btnExp.Size=New-Object System.Drawing.Size(150,30); $btnExp.Anchor="Bottom,Left"
+    $btnExp.Add_Click({
+        if ($rows.Count -eq 0) { return }
+        $dlg=New-Object System.Windows.Forms.SaveFileDialog; $dlg.Filter="Fichier CSV (*.csv)|*.csv"; $dlg.FileName="Membres_$($GroupName -replace '[^\w\-]','_').csv"
+        if ($dlg.ShowDialog() -ne "OK") { return }
+        try { $rows | Select-Object DisplayName,UserPrincipalName,Type,ObjectId | Export-Csv -Path $dlg.FileName -Delimiter ";" -NoTypeInformation -Encoding UTF8
+              [System.Windows.Forms.MessageBox]::Show("Export termine :`n$($dlg.FileName)","Export","OK","Information")|Out-Null }
+        catch { [System.Windows.Forms.MessageBox]::Show("Echec :`n$($_.Exception.Message)","Export","OK","Error")|Out-Null }
+    })
+    $f.Controls.Add($btnExp)
+
+    $btnCl = New-Object System.Windows.Forms.Button; $btnCl.Text="Fermer"; $btnCl.Location=New-Object System.Drawing.Point(656,484); $btnCl.Size=New-Object System.Drawing.Size(100,30); $btnCl.Anchor="Bottom,Right"
+    $btnCl.Add_Click({ $f.Close() }); $f.Controls.Add($btnCl)
+
+    Write-Log "Membres listes : $($rows.Count)"
+    [void]$f.ShowDialog()
+}
+
 # ==================================================================
 # Evenements
 # ==================================================================
@@ -189,6 +237,13 @@ $btnCheck.Add_Click({
         $lblGroupInfo.Text="OK : $([string](Get-GProp $script:Group 'DisplayName'))  |  ObjectId $($script:GroupId)"
         Write-Log "Groupe resolu : $([string](Get-GProp $script:Group 'DisplayName')) ($($script:GroupId))"
     } else { $lblGroupInfo.ForeColor=[System.Drawing.Color]::Firebrick; $lblGroupInfo.Text="Groupe introuvable."; Write-Log "Groupe introuvable : $($txtGroup.Text)" }
+})
+
+$btnListMembers.Add_Click({
+    if (-not (Test-AzConnected)) { [System.Windows.Forms.MessageBox]::Show("Non connecte a Azure.","Connexion","OK","Warning")|Out-Null; return }
+    if (-not $script:Group) { $script:Group = Resolve-Group $txtGroup.Text; if ($script:Group) { $script:GroupId=[string](Get-GProp $script:Group 'Id') } }
+    if (-not $script:Group) { [System.Windows.Forms.MessageBox]::Show("Verifiez d'abord le groupe cible.","Groupe","OK","Warning")|Out-Null; return }
+    Show-GroupMembers $script:GroupId ([string](Get-GProp $script:Group 'DisplayName'))
 })
 
 $btnResolve.Add_Click({
