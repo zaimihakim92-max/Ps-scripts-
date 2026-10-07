@@ -114,7 +114,7 @@ $btnTeams = New-Object System.Windows.Forms.Button; $btnTeams.Text="Detect Teams
 Add-Lbl $form "Filter:" 15 117 | Out-Null
 $txtFilter = New-Object System.Windows.Forms.TextBox; $txtFilter.Location=New-Object System.Drawing.Point(70,114); $txtFilter.Size=New-Object System.Drawing.Size(400,23); $form.Controls.Add($txtFilter)
 $lblCount = Add-Lbl $form "0 sites" 485 117
-$btnExport = New-Object System.Windows.Forms.Button; $btnExport.Text="Export CSV..."; $btnExport.Location=New-Object System.Drawing.Point(820,112); $btnExport.Size=New-Object System.Drawing.Size(165,28); $btnExport.Anchor="Top,Right"; $btnExport.Enabled=$false; $form.Controls.Add($btnExport)
+$btnExport = New-Object System.Windows.Forms.Button; $btnExport.Text="Export..."; $btnExport.Location=New-Object System.Drawing.Point(820,112); $btnExport.Size=New-Object System.Drawing.Size(165,28); $btnExport.Anchor="Top,Right"; $btnExport.Enabled=$false; $form.Controls.Add($btnExport)
 
 $grid = New-Object System.Windows.Forms.DataGridView
 $grid.Location=New-Object System.Drawing.Point(15,150); $grid.Size=New-Object System.Drawing.Size(970,440); $grid.Anchor="Top,Bottom,Left,Right"
@@ -273,12 +273,24 @@ $btnExport.Add_Click({
     $keys = Show-ColumnChooser
     if ($null -eq $keys) { return }
     if (@($keys).Count -eq 0) { [System.Windows.Forms.MessageBox]::Show("Select at least one column.","Export","OK","Warning")|Out-Null; return }
-    $dlg=New-Object System.Windows.Forms.SaveFileDialog; $dlg.Filter="CSV file (*.csv)|*.csv"; $dlg.FileName="Tenant_Sites.csv"
+    $dlg=New-Object System.Windows.Forms.SaveFileDialog; $dlg.Filter="Excel workbook (*.xlsx)|*.xlsx|CSV file (*.csv)|*.csv"; $dlg.FileName="Tenant_Sites.xlsx"
     if ($dlg.ShowDialog() -ne "OK") { return }
+    $file = $dlg.FileName
+    $data = $script:Sites | Select-Object $keys
     try {
-        $script:Sites | Select-Object $keys | Export-Csv -Path $dlg.FileName -Delimiter ";" -NoTypeInformation -Encoding UTF8
-        Write-Log "Exported ($($keys -join ', ')): $($dlg.FileName)"
-        [System.Windows.Forms.MessageBox]::Show("Export complete:`n$($dlg.FileName)","Export","OK","Information")|Out-Null
+        if ($file -match '\.xlsx$') {
+            if (-not (Get-Module -ListAvailable -Name ImportExcel)) {
+                [System.Windows.Forms.MessageBox]::Show("The ImportExcel module is required for .xlsx export.`nInstall-Module ImportExcel -Scope CurrentUser`n`nTip: use a .csv file name to export without it.","Export","OK","Warning")|Out-Null
+                return
+            }
+            Import-Module ImportExcel -ErrorAction Stop
+            if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force }
+            $data | Export-Excel -Path $file -WorksheetName 'Sites' -AutoSize -FreezeTopRow -BoldTopRow -AutoFilter
+        } else {
+            $data | Export-Csv -Path $file -Delimiter ";" -NoTypeInformation -Encoding UTF8
+        }
+        Write-Log "Exported ($($keys -join ', ')): $file"
+        [System.Windows.Forms.MessageBox]::Show("Export complete:`n$file","Export","OK","Information")|Out-Null
     } catch { [System.Windows.Forms.MessageBox]::Show("Failed:`n$($_.Exception.Message)","Export","OK","Error")|Out-Null }
 })
 
