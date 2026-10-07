@@ -178,30 +178,29 @@ function Export-ToXlsxCom {
     $ws = $wb.Worksheets.Item(1)
     $ws.Name = "Sites"
 
-    # Tableau [lignes+1 x colonnes] rempli en memoire puis ecrit en UN bloc (rapide)
-    $arr = New-Object 'object[,]' ($nRows + 1), $nCols
-    for ($c = 0; $c -lt $nCols; $c++) { $arr[0, $c] = $Keys[$c] }
+    # Toute la plage en texte : aucun GUID/URL reinterprete par Excel
+    $lastCol = $ws.Cells.Item(1, $nCols)
+    $ws.Range($ws.Cells.Item(1,1), $ws.Cells.Item($nRows + 1, $nCols)).NumberFormat = "@"
+
+    # Ecriture ligne par ligne : chaque ligne est un tableau [1 x nCols] affecte a un Range
+    # En-tete
+    $hdr = @($Keys | ForEach-Object { [string]$_ })
+    $ws.Range($ws.Cells.Item(1,1), $ws.Cells.Item(1,$nCols)).Value2 = $hdr
+
     for ($r = 0; $r -lt $nRows; $r++) {
         $item = $rowsArr[$r]
-        for ($c = 0; $c -lt $nCols; $c++) {
-            $v = $item.$($Keys[$c])
-            # Prefixe les GUID/valeurs pour forcer le texte et eviter toute reinterpretation par Excel
-            $arr[$r + 1, $c] = [string]$v
-        }
-        if (($r % 2000) -eq 0) { Write-Log "  ecriture $r / $nRows..."; [System.Windows.Forms.Application]::DoEvents() }
+        $line = New-Object 'string[]' $nCols
+        for ($c = 0; $c -lt $nCols; $c++) { $line[$c] = [string]($item.$($Keys[$c])) }
+        $excelRow = $r + 2
+        $ws.Range($ws.Cells.Item($excelRow,1), $ws.Cells.Item($excelRow,$nCols)).Value2 = $line
+        if (($r % 500) -eq 0) { Write-Log "  ecriture $r / $nRows..."; [System.Windows.Forms.Application]::DoEvents() }
     }
-
-    $start = $ws.Cells.Item(1, 1)
-    $end   = $ws.Cells.Item($nRows + 1, $nCols)
-    $range = $ws.Range($start, $end)
-    $range.NumberFormat = "@"          # tout en texte : aucun GUID/URL transforme
-    $range.Value2 = $arr
 
     # Mise en forme : en-tete gras, fige, filtre auto, largeurs auto
     $header = $ws.Range($ws.Cells.Item(1,1), $ws.Cells.Item(1,$nCols))
     $header.Font.Bold = $true
-    $ws.Rows.Item(2).Select() | Out-Null
-    $xl.ActiveWindow.FreezePanes = $true
+    $ws.Application.ActiveWindow.SplitRow = 1
+    $ws.Application.ActiveWindow.FreezePanes = $true
     $header.AutoFilter() | Out-Null
     $ws.Columns.AutoFit() | Out-Null
 
