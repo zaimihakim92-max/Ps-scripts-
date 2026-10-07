@@ -159,6 +159,63 @@ function Update-Grid {
     $lblCount.Text = "$n / $($script:Sites.Count) sites"
 }
 
+function Export-ToXlsxCom {
+    # Ecrit un vrai .xlsx via Excel en COM (aucun module requis ; Excel doit etre installe).
+    param($Rows, [string[]]$Keys, [string]$Path)
+    $rowsArr = @($Rows)
+    $nRows = $rowsArr.Count; $nCols = $Keys.Count
+    if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
+
+    $xl = $null
+    try {
+        $xl = New-Object -ComObject Excel.Application
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show("Microsoft Excel introuvable sur ce poste (requis pour l'export .xlsx sans module).`nUtilisez un nom de fichier .csv a la place.","Export","OK","Warning")|Out-Null
+        return
+    }
+    $xl.Visible = $false; $xl.DisplayAlerts = $false; $xl.ScreenUpdating = $false
+    $wb = $xl.Workbooks.Add()
+    $ws = $wb.Worksheets.Item(1)
+    $ws.Name = "Sites"
+
+    # Tableau [lignes+1 x colonnes] rempli en memoire puis ecrit en UN bloc (rapide)
+    $arr = New-Object 'object[,]' ($nRows + 1), $nCols
+    for ($c = 0; $c -lt $nCols; $c++) { $arr[0, $c] = $Keys[$c] }
+    for ($r = 0; $r -lt $nRows; $r++) {
+        $item = $rowsArr[$r]
+        for ($c = 0; $c -lt $nCols; $c++) {
+            $v = $item.$($Keys[$c])
+            # Prefixe les GUID/valeurs pour forcer le texte et eviter toute reinterpretation par Excel
+            $arr[$r + 1, $c] = [string]$v
+        }
+        if (($r % 2000) -eq 0) { Write-Log "  ecriture $r / $nRows..."; [System.Windows.Forms.Application]::DoEvents() }
+    }
+
+    $start = $ws.Cells.Item(1, 1)
+    $end   = $ws.Cells.Item($nRows + 1, $nCols)
+    $range = $ws.Range($start, $end)
+    $range.NumberFormat = "@"          # tout en texte : aucun GUID/URL transforme
+    $range.Value2 = $arr
+
+    # Mise en forme : en-tete gras, fige, filtre auto, largeurs auto
+    $header = $ws.Range($ws.Cells.Item(1,1), $ws.Cells.Item(1,$nCols))
+    $header.Font.Bold = $true
+    $ws.Rows.Item(2).Select() | Out-Null
+    $xl.ActiveWindow.FreezePanes = $true
+    $header.AutoFilter() | Out-Null
+    $ws.Columns.AutoFit() | Out-Null
+
+    # xlOpenXMLWorkbook = 51
+    $wb.SaveAs($Path, 51)
+    $wb.Close($false)
+    $xl.Quit()
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($range) | Out-Null
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($ws) | Out-Null
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wb) | Out-Null
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($xl) | Out-Null
+    [GC]::Collect(); [GC]::WaitForPendingFinalizers()
+}
+
 function Show-ColumnChooser {
     # Column selection + reorder dialog. Returns an ordered array of property keys, or $null if cancelled.
     $dlg = New-Object System.Windows.Forms.Form
@@ -279,13 +336,7 @@ $btnExport.Add_Click({
     $data = $script:Sites | Select-Object $keys
     try {
         if ($file -match '\.xlsx$') {
-            if (-not (Get-Module -ListAvailable -Name ImportExcel)) {
-                [System.Windows.Forms.MessageBox]::Show("The ImportExcel module is required for .xlsx export.`nInstall-Module ImportExcel -Scope CurrentUser`n`nTip: use a .csv file name to export without it.","Export","OK","Warning")|Out-Null
-                return
-            }
-            Import-Module ImportExcel -ErrorAction Stop
-            if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force }
-            $data | Export-Excel -Path $file -WorksheetName 'Sites' -AutoSize -FreezeTopRow -BoldTopRow -AutoFilter
+            Export-ToXlsxCom -Rows $data -Keys $keys -Path $file
         } else {
             $data | Export-Csv -Path $file -Delimiter ";" -NoTypeInformation -Encoding UTF8
         }
